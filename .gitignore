@@ -1,0 +1,16 @@
+*.txt
+!requirements.txt
+__pycache__
+lightning_logs*
+*.pth
+*.ckpt
+*.npy
+logs/*
+outputs/
+poetry.lock
+uv.lock
+sp/*.model
+src/test.py
+resources/*
+.venv/
+.env

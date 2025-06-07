@@ -1,0 +1,28 @@
+services:
+  dev:
+    container_name: lm-playground
+    image: lm-playground 
+    build:
+      context: .
+      dockerfile: Dockerfile
+    tty: true
+    shm_size: 16G
+    volumes:
+      - ./:/workspace
+      - resources:/workspace/resources/ # exclude this from the build context
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    runtime: nvidia
+
+volumes:
+  resources:
+    driver: local
+    driver_opts:
+      type: none
+      device: ${RESOURCES_DIR}
+      o: bind
