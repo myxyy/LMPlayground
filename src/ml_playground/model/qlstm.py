@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import Tensor
 
 class RMSNorm(nn.Module):
     def __init__(self, dim: int, eps: float = 1e-6, elementwise_affine: bool = True):
@@ -84,7 +85,6 @@ class QLSTMLayer(nn.Module):
         self.sigmoid = nn.Sigmoid()
         self.tanh = nn.Tanh()
 
-    @override
     def forward(self, x: Tensor, hidden: Tensor) -> tuple[Tensor, Tensor]:
         batch, len, dim = x.shape
 
@@ -115,7 +115,6 @@ class QLSTMBlock(nn.Module):
         self.norm_ffn = RMSNorm(dim)
         self.dropout = nn.Dropout(dropout)
 
-    @override
     def forward(self, x: Tensor, hidden: Tensor) -> tuple[Tensor, Tensor]:
         x_ = x
         x = self.norm_qlstm(x)
@@ -143,10 +142,25 @@ class QLSTMLM(nn.Module):
         self.norm = RMSNorm(dim)
         self.fc_out = nn.Linear(dim, vocab_size)
 
-    def forward(self, x: Tensor, hidden: Tensor) -> Tensor:
+        self.hidden_init = nn.Parameter(
+            torch.zeros(num_layers, dim)
+        )
+
+    def forward_common(self, x: Tensor, hidden: Tensor) -> Tensor:
         x = self.embedding(x)
+        hidden_next = []
         for i, layer in enumerate(self.layers):
-            x, hidden[i] = layer(x, hidden[i])
+            x, hidden_next_layer = layer(x, hidden[:, i])
+            hidden_next.append(hidden_next_layer)
         x = self.norm(x)
         x = self.fc_out(x)
-        return x, hidden
+        hidden_next = torch.stack(hidden_next, dim=1)
+        return x, hidden_next
+
+    def forward(self, x: Tensor) -> Tensor:
+        batch, length = x.shape
+        hidden = self.hidden_init[None, :].expand(batch, -1, -1)
+        hidden = hidden.reshape(batch, self.num_layers, self.dim)
+
+        x, _ = self.forward_common(x, hidden)
+        return x
