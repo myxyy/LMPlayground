@@ -142,11 +142,15 @@ class QLSTMLM(nn.Module):
         self.norm = RMSNorm(dim)
         self.fc_out = nn.Linear(dim, vocab_size)
 
-        self.hidden_init = nn.Parameter(
+        self._hidden_init = nn.Parameter(
             torch.zeros(num_layers, dim)
         )
 
-    def forward_common(self, x: Tensor, hidden: Tensor) -> Tensor:
+    @property
+    def hidden_init(self) -> Tensor:
+        return self._hidden_init
+
+    def forward_with_hidden(self, x: Tensor, hidden: Tensor) -> Tensor:
         x = self.embedding(x)
         hidden_next = []
         for i, layer in enumerate(self.layers):
@@ -162,5 +166,5 @@ class QLSTMLM(nn.Module):
         hidden = self.hidden_init[None, :].expand(batch, -1, -1)
         hidden = hidden.reshape(batch, self.num_layers, self.dim)
 
-        x, _ = self.forward_common(x, hidden)
+        x, _ = self.forward_with_hidden(x, hidden)
         return x
