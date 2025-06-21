@@ -31,6 +31,7 @@ if __name__ == "__main__":
         dropout = 0.1,
         vocab_size = tokenizer.vocab_size
     )
+    model.train()
     model = DDP(model.cuda(), device_ids=[gpu_id])
 
     max_length = 4096
