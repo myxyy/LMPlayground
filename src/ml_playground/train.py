@@ -56,5 +56,11 @@ if __name__ == "__main__":
                 "lr": optimizer.param_groups[0]["lr"]
             })
             #print(outputs.shape)  # Should be (batch_size, sequence_length, vocab
+
+    # check if "resources/models" directory exists, if not create it
+    if gpu_id == 0:
+        if not os.path.exists("resources/models"):
+            os.makedirs("resources/models")
+        torch.save(model.module.cpu().state_dict(), "resources/models/qlstm_lm.pth")
     
     destroy_process_group()
