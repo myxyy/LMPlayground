@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     make \
     ca-certificates \
+    screen \
+    vim \
 && apt-get clean
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
