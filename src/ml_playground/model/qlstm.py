@@ -2,6 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
+from transformers.modeling_utils import PreTrainedModel
+from transformers.configuration_utils import PretrainedConfig
+from dataclasses import dataclass
 
 class RMSNorm(nn.Module):
     def __init__(self, dim: int, eps: float = 1e-6, elementwise_affine: bool = True):
@@ -130,25 +133,44 @@ class QLSTMBlock(nn.Module):
 
         return x, hidden
 
-class QLSTMLM(nn.Module):
-    def __init__(self, dim: int, dim_ff_hidden: int, num_layers: int, dropout: float, vocab_size: int):
-        super().__init__()
-        self.dim = dim
-        self.num_layers = num_layers
-        self.embedding = nn.Embedding(vocab_size, dim)
+@dataclass
+class QLSTMConfig(PretrainedConfig):
+    dim: int = 1024
+    dim_ff_hidden: int = 2048
+    num_layers: int = 16
+    dropout: float = 0.1
+
+class QLSTMModel(PreTrainedModel):
+    def __init__(self, config: QLSTMConfig, vocab_size: int):
+        super().__init__(config)
+        self.dim = config.dim
+        self.num_layers = config.num_layers
+        self.embedding = nn.Embedding(vocab_size, config.dim)
         self.layers = nn.ModuleList(
-            [QLSTMBlock(dim, dim_ff_hidden, dropout) for _ in range(num_layers)]
+            [QLSTMBlock(config.dim, config.dim_ff_hidden, config.dropout) for _ in range(config.num_layers)]
         )
-        self.norm = RMSNorm(dim)
-        self.fc_out = nn.Linear(dim, vocab_size)
+        self.norm = RMSNorm(config.dim)
+        self.fc_out = nn.Linear(config.dim, vocab_size)
 
         self._hidden_init = nn.Parameter(
-            torch.zeros(num_layers, dim)
+            torch.zeros(config.num_layers, config.dim)
         )
 
     @property
     def hidden_init(self) -> Tensor:
         return self._hidden_init
+
+    def get_input_embeddings(self) -> nn.Embedding:
+        return self.embedding
+
+    def set_input_embeddings(self, value: nn.Embedding) -> None:
+        self.embedding = value
+
+    def get_output_embeddings(self) -> nn.Linear:
+        return self.fc_out
+
+    def set_output_embeddings(self, value: nn.Linear) -> None:
+        self.fc_out = value
 
     def forward_with_hidden(self, x: Tensor, hidden: Tensor) -> Tensor:
         x = self.embedding(x)

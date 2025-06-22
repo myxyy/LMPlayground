@@ -1,6 +1,6 @@
 from datasets import load_dataset
 from transformers import AutoTokenizer
-from ml_playground.model.qlstm import QLSTMLM
+from ml_playground.model.qlstm import QLSTMModel, QLSTMConfig
 from ml_playground.trainer import Trainer
 
 if __name__ == "__main__":
@@ -9,11 +9,14 @@ if __name__ == "__main__":
 
     tokenizer = AutoTokenizer.from_pretrained("elyza/ELYZA-japanese-Llama-2-7b-fast")
 
-    model = QLSTMLM(
-        dim = 1024,
-        dim_ff_hidden = 2048,
-        num_layers = 16,
-        dropout = 0.1,
+    config = QLSTMConfig(
+        dim=1024,
+        dim_ff_hidden=2048,
+        num_layers=16,
+        dropout=0.1
+    )
+    model = QLSTMModel(
+        config=config,
         vocab_size = tokenizer.vocab_size
     )
     model.train()
