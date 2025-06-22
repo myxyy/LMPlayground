@@ -7,7 +7,7 @@ from ml_playground.trainer import Trainer
 
 if __name__ == "__main__":
     dataset = load_dataset("wikimedia/wikipedia", "20231101.ja", split="train", cache_dir="resources/datasets")
-    dataset = dataset.take(10)
+    dataset = dataset.take(100)
 
     tokenizer = AutoTokenizer.from_pretrained("elyza/ELYZA-japanese-Llama-2-7b-fast")
 
@@ -25,7 +25,10 @@ if __name__ == "__main__":
         tokenizer=tokenizer,
         dataset=dataset,
         max_length=4096,
-        max_epochs=1
+        max_epochs=1,
+        model_name="qlstm",
+        checkpoint_path="resources/checkpoints/qlstm",
+        checkpoint_interval=10
     )
 
     trainer.train()
