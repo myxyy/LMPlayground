@@ -1,8 +1,6 @@
 from datasets import load_dataset
 from transformers import AutoTokenizer
 from ml_playground.model.qlstm import QLSTMLM
-from torch.distributed import init_process_group, destroy_process_group
-from torch.nn.parallel import DistributedDataParallel as DDP
 from ml_playground.trainer import Trainer
 
 if __name__ == "__main__":
