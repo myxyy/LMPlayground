@@ -1,16 +1,19 @@
 from transformers import AutoTokenizer
-from ml_playground.model.qlstm import QLSTMLM
+from ml_playground.model.qlstm import QLSTMModel, QLSTMConfig
 import torch
 
 tokenizer = AutoTokenizer.from_pretrained("elyza/ELYZA-japanese-Llama-2-7b-fast")
-model = QLSTMLM(
-    dim = 1024,
-    dim_ff_hidden = 2048,
-    num_layers = 16,
-    dropout = 0.1,
+config = QLSTMConfig(
+    dim=1024,
+    dim_ff_hidden=2048,
+    num_layers=16,
+    dropout=0.1
+)
+model = QLSTMModel(
+    config=config,
     vocab_size = tokenizer.vocab_size
 )
-model.load_state_dict(torch.load("resources/models/qlstm_lm.pth", map_location="cpu"))
+model.load_state_dict(torch.load("resources/checkpoints/qlstm/qlstm.pth", map_location="cpu"))
 model.eval()
 model.cuda()
 
@@ -30,9 +33,6 @@ for i in range(max_length):
     y = y[0, -1, :]
     #id_next = torch.argmax(y, dim=-1)
     id_next = torch.multinomial(torch.softmax(y, dim=-1), num_samples=1)[0]
-    #print(id_next)
-    #print(id_next.item())
-    #print(id_next.shape)
     id_list.append(id_next.item())
     x = id_next[None, None].cuda()
 
