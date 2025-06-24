@@ -8,6 +8,7 @@ from torch.distributed import init_process_group, destroy_process_group
 import os
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch
+from transformers import DataCollatorWithPadding
 
 class Trainer:
     def __init__(
@@ -70,7 +71,8 @@ class Trainer:
         init_process_group(backend="nccl")
 
         self.model = DDP(self.model.cuda(), device_ids=[self.gpu_id])
-        self.dataloader = StatefulDataLoader(self.dataset, batch_size=1, pin_memory=True, sampler=DistributedSampler(self.dataset), num_workers=4)
+        collator = lambda t: self.tokenizer(t, truncation=True, padding="max_length", max_length=self.max_length+1, return_tensors="pt")
+        self.dataloader = StatefulDataLoader(self.dataset, collate_fn=collator, batch_size=1, pin_memory=True, sampler=DistributedSampler(self.dataset), num_workers=4)
 
         self.load_checkpoint()
 
@@ -78,9 +80,8 @@ class Trainer:
             pbar = tqdm(self.dataloader, initial=self.current_step, total=len(self.dataloader))
             for i, batch in enumerate(pbar):
                 self.optimizer.zero_grad()
-                tokenized_text = self.tokenizer(batch["text"], truncation=True, padding="max_length", max_length=self.max_length+1, return_tensors="pt")["input_ids"]
-                inputs = tokenized_text[:, :-1].cuda()
-                targets = tokenized_text[:, 1:].cuda()
+                inputs = batch["input_ids"][:, :-1].cuda()
+                targets = batch["input_ids"][:, 1:].cuda()
                 #print(inputs)
                 outputs = self.model(inputs)
                 loss = self.criterion(outputs.view(-1, self.tokenizer.vocab_size), targets.view(-1))
