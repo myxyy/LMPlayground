@@ -1,5 +1,5 @@
 from transformers import AutoTokenizer
-from ml_playground.model.qlstm import QLSTMModel, QLSTMConfig
+from lm_playground.model.qlstm import QLSTMModel, QLSTMConfig
 import torch
 
 tokenizer = AutoTokenizer.from_pretrained("elyza/ELYZA-japanese-Llama-2-7b-fast")

@@ -14,4 +14,4 @@ src/test.py
 resources/*
 .venv/
 .env
-src/ml_playground/test.py
+src/lm_playground/test.py

@@ -4,4 +4,4 @@
 myxy's playground for RNN-style language models
 
 ## Memo
-uv run torchrun --standalone --nproc_per_node=1 src/ml_playground/train.py
+uv run torchrun --standalone --nproc_per_node=1 src/lm_playground/train.py

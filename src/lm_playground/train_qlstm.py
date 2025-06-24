@@ -1,7 +1,7 @@
 from datasets import load_dataset
 from transformers import AutoTokenizer
-from ml_playground.model.qlstm import QLSTMModel, QLSTMConfig
-from ml_playground.trainer import Trainer
+from lm_playground.model.qlstm import QLSTMModel, QLSTMConfig
+from lm_playground.trainer import Trainer
 
 if __name__ == "__main__":
     #dataset = load_dataset("wikimedia/wikipedia", "20231101.ja", split="train", cache_dir="resources/datasets")
