@@ -17,6 +17,7 @@ class Trainer:
             tokenizer,
             dataset,
             model_name,
+            batch_size=1,
             max_length=4096,
             max_epochs=1,
             checkpoint_path=None,
@@ -26,6 +27,7 @@ class Trainer:
         self.model = model
         self.tokenizer = tokenizer
         self.dataset = dataset
+        self.batch_size = batch_size
         self.max_length = max_length
         self.optimizer = AdamW(self.model.parameters(), lr=1e-4, weight_decay=0.01)
         self.max_epochs = max_epochs
@@ -72,7 +74,7 @@ class Trainer:
 
         self.model = DDP(self.model.cuda(), device_ids=[self.gpu_id])
         collator = lambda t: self.tokenizer(t, truncation=True, padding="max_length", max_length=self.max_length+1, return_tensors="pt")
-        self.dataloader = StatefulDataLoader(self.dataset, collate_fn=collator, batch_size=1, pin_memory=True, sampler=DistributedSampler(self.dataset), num_workers=4)
+        self.dataloader = StatefulDataLoader(self.dataset, collate_fn=collator, batch_size=self.batch_size, pin_memory=True, sampler=DistributedSampler(self.dataset), num_workers=4)
 
         self.load_checkpoint()
 

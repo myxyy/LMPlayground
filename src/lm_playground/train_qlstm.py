@@ -4,7 +4,7 @@ from lm_playground.model.qlstm import QLSTMModel, QLSTMConfig
 from lm_playground.trainer import Trainer
 
 if __name__ == "__main__":
-    dataset = load_dataset("graleo/wikipedia", "20231101.ja", split="train", cache_dir="resources/datasets")
+    dataset = load_dataset("graelo/wikipedia", "20230601.ja", split="train", cache_dir="resources/datasets")
     dataset = dataset["text"]
     #dataset = load_dataset("globis-university/aozorabunko-clean", split="train", cache_dir="resources/datasets")
     #dataset = dataset["text"]
@@ -28,7 +28,8 @@ if __name__ == "__main__":
         model=model,
         tokenizer=tokenizer,
         dataset=dataset,
-        max_length=4096,
+        batch_size=4,
+        max_length=1024,
         max_epochs=1,
         model_name="qlstm",
         checkpoint_path="resources/checkpoints/qlstm",
