@@ -4,9 +4,10 @@ from lm_playground.model.qlstm import QLSTMModel, QLSTMConfig
 from lm_playground.trainer import Trainer
 
 if __name__ == "__main__":
-    #dataset = load_dataset("wikimedia/wikipedia", "20231101.ja", split="train", cache_dir="resources/datasets")
-    dataset = load_dataset("globis-university/aozorabunko-clean", split="train", cache_dir="resources/datasets")
+    dataset = load_dataset("graleo/wikipedia", "20231101.ja", split="train", cache_dir="resources/datasets")
     dataset = dataset["text"]
+    #dataset = load_dataset("globis-university/aozorabunko-clean", split="train", cache_dir="resources/datasets")
+    #dataset = dataset["text"]
     #dataset = dataset.take(100000)
 
     tokenizer = AutoTokenizer.from_pretrained("elyza/ELYZA-japanese-Llama-2-7b-fast", cache_dir="resources/tokenizers")
