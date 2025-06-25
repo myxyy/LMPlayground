@@ -28,7 +28,7 @@ if __name__ == "__main__":
         model=model,
         tokenizer=tokenizer,
         dataset=dataset,
-        batch_size=4,
+        batch_size=6,
         max_length=1024,
         max_epochs=1,
         model_name="qlstm",
