@@ -2,7 +2,7 @@ from transformers import AutoTokenizer, TextStreamer
 from lm_playground.model.qlstm import QLSTMModel, QLSTMConfig
 import torch
 
-tokenizer = AutoTokenizer.from_pretrained("elyza/ELYZA-japanese-Llama-2-7b-fast")
+tokenizer = AutoTokenizer.from_pretrained("elyza/ELYZA-japanese-Llama-2-7b-fast", cache_dir="resources/tokenizers")
 config = QLSTMConfig(
     dim=1024,
     dim_ff_hidden=2048,
