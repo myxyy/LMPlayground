@@ -1,5 +1,5 @@
 [project]
-name = "ml-playground"
+name = "lm-playground"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -8,6 +8,7 @@ dependencies = [
     "accelerate>=1.7.0",
     "datasets>=3.6.0",
     "numpy>=2.2.6",
+    "schedulefree>=1.4.1",
     "torch>=2.7.0",
     "torchdata>=0.11.0",
     "transformers>=4.52.4",
