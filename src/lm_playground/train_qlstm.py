@@ -45,7 +45,7 @@ if __name__ == "__main__":
         max_epochs=1,
         model_name="qlstm",
         checkpoint_path="resources/checkpoints/qlstm",
-        checkpoint_interval=5000,
+        checkpoint_interval=1000,
         validation_interval=500
     )
 

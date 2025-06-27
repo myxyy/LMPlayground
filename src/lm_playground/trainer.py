@@ -47,6 +47,15 @@ class Trainer:
         if self.gpu_id == 0:
             if not os.path.exists(self.checkpoint_path):
                 os.makedirs(self.checkpoint_path)
+
+            current_checkpoint_file = None
+            checkpoint_files = [f for f in os.listdir(self.checkpoint_path) if f.endswith('.ckpt')]
+            if checkpoint_files:
+                chackpoint_files_max_epoch = max([int(f.split('_')[2]) for f in checkpoint_files])
+                checkpoint_files = [f for f in checkpoint_files if int(f.split('_')[2]) == chackpoint_files_max_epoch]
+                latest_checkpoint = max(checkpoint_files, key=lambda x: int(x.split('_')[-1].split('.')[0]))
+                current_checkpoint_file = os.path.join(self.checkpoint_path, latest_checkpoint)
+
             checkpoint_file = os.path.join(self.checkpoint_path, f"{self.model_name}_epoch_{self.current_epoch}_step_{self.current_step}.ckpt")
             torch.save({
                 'model_state_dict': self.model.module.state_dict(),
@@ -55,6 +64,10 @@ class Trainer:
                 'epoch': self.current_epoch,
                 'step': self.current_step
             }, checkpoint_file)
+
+            if current_checkpoint_file is not None:
+                os.remove(current_checkpoint_file)
+
             print(f"Checkpoint saved to {checkpoint_file}")
 
     def load_checkpoint(self):
