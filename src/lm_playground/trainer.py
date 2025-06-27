@@ -101,7 +101,7 @@ class Trainer:
                 if self.current_step % self.validation_interval == 0:
                     self.model.eval()
                     self.optimizer.eval()
-                    pbar_validation = tqdm(self.validation_dataloader, initial=self.current_step, total=len(self.validation_dataloader))
+                    pbar_validation = tqdm(self.validation_dataloader)
                     for _, val_batch in enumerate(pbar_validation):
                         with torch.no_grad():
                             val_loss = self.calculate_loss(val_batch)
