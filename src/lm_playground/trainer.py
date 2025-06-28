@@ -4,6 +4,7 @@ from tqdm import tqdm
 from torch.optim import AdamW
 import torch.nn as nn
 from torch.utils.data.distributed import DistributedSampler
+import torch.distributed as dist
 from torch.distributed import init_process_group, destroy_process_group
 import os
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -106,10 +107,13 @@ class Trainer:
                 loss = self.calculate_loss(batch)
                 loss.backward()
                 self.optimizer.step()
-                pbar.set_postfix({
-                    "loss": loss.item(),
-                    "lr": self.optimizer.param_groups[0]["lr"]
-                })
+                loss_avg = torch.tensor(loss.item(), device=self.gpu_id)
+                dist.all_reduce(loss_avg, op=dist.ReduceOp.AVG)
+                if self.gpu_id == 0:
+                    pbar.set_postfix({
+                        "loss": loss_avg.item(),
+                        "lr": self.optimizer.param_groups[0]["lr"]
+                    })
                 self.current_step += 1
                 if self.current_step % self.validation_interval == 0:
                     self.model.eval()
@@ -118,9 +122,12 @@ class Trainer:
                     for _, val_batch in enumerate(pbar_validation):
                         with torch.no_grad():
                             val_loss = self.calculate_loss(val_batch)
-                            pbar_validation.set_postfix({
-                                "val_loss": val_loss.item()
-                            })
+                            val_loss_avg = torch.tensor(val_loss.item(), device=self.gpu_id)
+                            dist.all_reduce(val_loss_avg, op=dist.ReduceOp.AVG)
+                            if self.gpu_id == 0:
+                                pbar_validation.set_postfix({
+                                    "val_loss": val_loss_avg.item()
+                                })
                 if self.current_step % self.checkpoint_interval == 0:
                     self.save_checkpoint()
             self.current_epoch += 1
