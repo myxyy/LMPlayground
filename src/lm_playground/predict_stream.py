@@ -14,6 +14,11 @@ model = QLSTMModel(
     vocab_size = tokenizer.vocab_size
 )
 model.load_state_dict(torch.load("resources/checkpoints/qlstm/qlstm.pth", map_location="cpu"))
+
+# print number of parameters
+num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(f"Number of parameters: {num_params}")
+
 model.eval()
 model.cuda()
 

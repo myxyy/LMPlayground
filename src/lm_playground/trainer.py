@@ -111,10 +111,7 @@ class Trainer:
                 loss_avg = torch.tensor(loss.item(), device=self.gpu_id)
                 dist.all_reduce(loss_avg, op=dist.ReduceOp.AVG)
                 if self.is_master:
-                    pbar.set_postfix({
-                        "loss": loss_avg.item(),
-                        "lr": self.optimizer.param_groups[0]["lr"]
-                    })
+                    pbar.set_postfix({"loss": loss_avg.item()})
                 self.current_step += 1
                 if self.current_step % self.validation_interval == 0:
                     self.model.eval()
@@ -126,9 +123,7 @@ class Trainer:
                             val_loss_avg = torch.tensor(val_loss.item(), device=self.gpu_id)
                             dist.all_reduce(val_loss_avg, op=dist.ReduceOp.AVG)
                             if self.is_master:
-                                pbar_validation.set_postfix({
-                                    "val_loss": val_loss_avg.item()
-                                })
+                                pbar_validation.set_postfix({"val_loss": val_loss_avg.item()})
                 if self.current_step % self.checkpoint_interval == 0:
                     self.save_checkpoint()
             self.current_epoch += 1
