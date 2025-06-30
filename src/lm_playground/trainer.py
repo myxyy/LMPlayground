@@ -28,6 +28,7 @@ class Trainer:
             validation_interval=1000
         ):
         self.gpu_id = int(os.environ["LOCAL_RANK"])
+        self.is_master = self.gpu_id == 0
         self.model = model
         self.tokenizer = tokenizer
         self.train_dataset = train_dataset
@@ -45,7 +46,7 @@ class Trainer:
         self.validation_interval = validation_interval
     
     def save_checkpoint(self):
-        if self.gpu_id == 0:
+        if self.is_master:
             if not os.path.exists(self.checkpoint_path):
                 os.makedirs(self.checkpoint_path)
 
@@ -99,7 +100,7 @@ class Trainer:
         self.load_checkpoint()
 
         while self.current_epoch < self.max_epochs:
-            pbar = tqdm(self.train_dataloader, initial=self.current_step, total=len(self.train_dataloader))
+            pbar = tqdm(self.train_dataloader, initial=self.current_step, total=len(self.train_dataloader), disable=not self.is_master)
             for _, batch in enumerate(pbar):
                 self.model.train()
                 self.optimizer.train()
@@ -109,7 +110,7 @@ class Trainer:
                 self.optimizer.step()
                 loss_avg = torch.tensor(loss.item(), device=self.gpu_id)
                 dist.all_reduce(loss_avg, op=dist.ReduceOp.AVG)
-                if self.gpu_id == 0:
+                if self.is_master:
                     pbar.set_postfix({
                         "loss": loss_avg.item(),
                         "lr": self.optimizer.param_groups[0]["lr"]
@@ -118,13 +119,13 @@ class Trainer:
                 if self.current_step % self.validation_interval == 0:
                     self.model.eval()
                     self.optimizer.eval()
-                    pbar_validation = tqdm(self.validation_dataloader)
+                    pbar_validation = tqdm(self.validation_dataloader, disable=not self.is_master)
                     for _, val_batch in enumerate(pbar_validation):
                         with torch.no_grad():
                             val_loss = self.calculate_loss(val_batch)
                             val_loss_avg = torch.tensor(val_loss.item(), device=self.gpu_id)
                             dist.all_reduce(val_loss_avg, op=dist.ReduceOp.AVG)
-                            if self.gpu_id == 0:
+                            if self.is_master:
                                 pbar_validation.set_postfix({
                                     "val_loss": val_loss_avg.item()
                                 })
@@ -132,7 +133,7 @@ class Trainer:
                     self.save_checkpoint()
             self.current_epoch += 1
 
-        if self.gpu_id == 0:
+        if self.is_master:
             if not os.path.exists(self.checkpoint_path):
                 os.makedirs(self.checkpoint_path)
             

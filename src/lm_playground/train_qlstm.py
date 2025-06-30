@@ -7,14 +7,14 @@ import torch
 if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained("elyza/ELYZA-japanese-Llama-2-7b-fast", cache_dir="resources/tokenizers")
 
-    dataset_wiki = load_dataset("graelo/wikipedia", "20230601.ja", split="train", cache_dir="resources/datasets")
+    dataset_wiki = load_dataset("graelo/wikipedia", "20230601.ja", split="train", cache_dir="resources/datasets", trust_remote_code=True)
     dataset_wiki_columns = [col for col in dataset_wiki.column_names if col != "text"]
     dataset_wiki = dataset_wiki.remove_columns(dataset_wiki_columns)
     #dataset = load_dataset("globis-university/aozorabunko-clean", split="train", cache_dir="resources/datasets")
     #dataset = dataset["text"]
     #dataset = dataset.take(100000)
 
-    dataset_chat = load_dataset("shi3z/ja_conv_wikipedia_orion14B_100K", split="train", cache_dir="resources/datasets")
+    dataset_chat = load_dataset("shi3z/ja_conv_wikipedia_orion14B_100K", split="train", cache_dir="resources/datasets", trust_remote_code=True)
     bos = tokenizer.bos_token
     dataset_chat = dataset_chat.map(lambda x : {"text": bos.join([t["value"] for t in x["conversations"]]) + bos})
 
