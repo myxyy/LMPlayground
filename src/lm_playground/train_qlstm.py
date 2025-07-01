@@ -16,7 +16,9 @@ if __name__ == "__main__":
 
     dataset_chat = load_dataset("shi3z/ja_conv_wikipedia_orion14B_100K", split="train", cache_dir="resources/datasets", trust_remote_code=True)
     bos = tokenizer.bos_token
-    dataset_chat = dataset_chat.map(lambda x : {"text": bos.join([t["value"] for t in x["conversations"]]) + bos})
+    b_inst, e_inst = "[INST]", "[/INST]"
+    #dataset_chat = dataset_chat.map(lambda x : {"text": bos.join([t["value"] for t in x["conversations"]]) + bos})
+    dataset_chat = dataset_chat.map(lambda x : {"text": "".join([(bos + b_inst + t["value"] + e_inst if t["from"] == "human" else t["value"]) for t in x["conversations"]]) + bos})
 
     dataset = concatenate_datasets([dataset_wiki, dataset_chat])
     dataset = dataset["text"]
@@ -42,7 +44,7 @@ if __name__ == "__main__":
         validation_dataset=validation_dataset,
         batch_size=6,
         max_length=1024,
-        max_epochs=1,
+        max_epochs=2,
         model_name="qlstm",
         checkpoint_path="resources/checkpoints/qlstm",
         checkpoint_interval=1000,
