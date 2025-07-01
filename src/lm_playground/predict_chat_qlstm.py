@@ -26,7 +26,7 @@ streamer = TextStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
 generator = Generator(model, tokenizer, max_length=1024)
 
 while True:
-    text_prefix = input("You: ") + tokenizer.bos_token
+    text_prefix = input("You: ")
     if text_prefix.lower() == "exit":
         break
     if text_prefix.lower() == "reset":
@@ -34,4 +34,4 @@ while True:
         print("Hidden state reset.")
         continue
     print("Bot: ")
-    generator.generate_stream(text_prefix, streamer)
+    generator.generate_stream(text_prefix + tokenizer.bos_token, streamer, end_token_id=tokenizer.bos_token_id)
