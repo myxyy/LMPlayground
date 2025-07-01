@@ -7,6 +7,9 @@ class Generator:
         self.max_length = max_length
         self._hidden = None
 
+    def reset_hidden(self):
+        self._hidden = None
+
     def generate(self, text_prefix, temperature=1.0):
         if self._hidden is None:
             self._hidden = self.model.hidden_init[None, :, :]
@@ -22,3 +25,26 @@ class Generator:
             x = id_next[None, None].to(self._hidden.device)
         text = self.tokenizer.decode(id_list, skip_special_tokens=True)
         return text
+
+    def generate_stream(self, text_prefix, streamer, temperature=1.0):
+        if self._hidden is None:
+            self._hidden = self.model.hidden_init[None, :, :]
+        tokenized_prefix = self.tokenizer(text_prefix, return_tensors="pt")["input_ids"]
+
+        x = tokenized_prefix.cuda() 
+
+        streamer.put(tokenized_prefix)
+
+        max_length = 1024
+        for i in range(max_length):
+            with torch.no_grad():
+                y, self._hidden = self.model.forward_with_hidden(x, self._hidden)
+            y = y[0, -1, :]
+            id_next = torch.multinomial(torch.softmax(y / temperature, dim=-1), num_samples=1)
+            streamer.put(id_next)
+            x = id_next[None].cuda()
+
+        streamer.end()
+
+
+
