@@ -126,6 +126,7 @@ class Trainer:
                                 pbar_validation.set_postfix({"val_loss": val_loss_avg.item()})
                 if self.current_step % self.checkpoint_interval == 0:
                     self.save_checkpoint()
+            self.current_step = 0
             self.current_epoch += 1
 
         if self.is_master:
