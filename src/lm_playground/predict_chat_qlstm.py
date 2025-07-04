@@ -33,5 +33,6 @@ while True:
         generator.reset_hidden()
         print("Hidden state reset.")
         continue
-    print("Bot: ")
-    generator.generate_stream(text_prefix + tokenizer.bos_token, streamer, end_token_id=tokenizer.bos_token_id)
+    print("Bot: ", end="")
+    b_inst, e_inst = "[INST]", "[/INST]"
+    generator.generate_stream(b_inst + text_prefix + e_inst, streamer, end_token_id=tokenizer.bos_token_id)

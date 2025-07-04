@@ -24,8 +24,7 @@ class Trainer:
             max_length=4096,
             max_epochs=1,
             checkpoint_path=None,
-            checkpoint_interval=1000,
-            validation_interval=1000
+            validation_checkpoint_interval=1000
         ):
         self.gpu_id = int(os.environ["LOCAL_RANK"])
         self.is_master = self.gpu_id == 0
@@ -41,9 +40,8 @@ class Trainer:
         self.model_name = model_name
         self.checkpoint_path = checkpoint_path
         self.current_step = 0
-        self.checkpoint_interval = checkpoint_interval
+        self.validation_checkpoint_interval = validation_checkpoint_interval
         self.current_epoch = 0
-        self.validation_interval = validation_interval
     
     def save_checkpoint(self):
         if self.is_master:
@@ -113,7 +111,7 @@ class Trainer:
                 if self.is_master:
                     pbar.set_postfix({"loss": loss_avg.item()})
                 self.current_step += 1
-                if self.current_step % self.validation_interval == 0:
+                if self.current_step % self.validation_checkpoint_interval == 0:
                     self.model.eval()
                     self.optimizer.eval()
                     pbar_validation = tqdm(self.validation_dataloader, disable=not self.is_master)
@@ -124,7 +122,6 @@ class Trainer:
                             dist.all_reduce(val_loss_avg, op=dist.ReduceOp.AVG)
                             if self.is_master:
                                 pbar_validation.set_postfix({"val_loss": val_loss_avg.item()})
-                if self.current_step % self.checkpoint_interval == 0:
                     self.save_checkpoint()
             self.current_step = 0
             self.current_epoch += 1

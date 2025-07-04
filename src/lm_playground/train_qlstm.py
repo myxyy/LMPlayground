@@ -47,8 +47,7 @@ if __name__ == "__main__":
         max_epochs=2,
         model_name="qlstm",
         checkpoint_path="resources/checkpoints/qlstm",
-        checkpoint_interval=1000,
-        validation_interval=500
+        validation_checkpoint_interval=500
     )
 
     trainer.train()
