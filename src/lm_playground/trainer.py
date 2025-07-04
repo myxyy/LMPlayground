@@ -44,31 +44,30 @@ class Trainer:
         self.current_epoch = 0
     
     def save_checkpoint(self):
-        if self.is_master:
-            if not os.path.exists(self.checkpoint_path):
-                os.makedirs(self.checkpoint_path)
+        if not os.path.exists(self.checkpoint_path):
+            os.makedirs(self.checkpoint_path)
 
-            current_checkpoint_file = None
-            checkpoint_files = [f for f in os.listdir(self.checkpoint_path) if f.endswith('.ckpt')]
-            if checkpoint_files:
-                chackpoint_files_max_epoch = max([int(f.split('_')[2]) for f in checkpoint_files])
-                checkpoint_files = [f for f in checkpoint_files if int(f.split('_')[2]) == chackpoint_files_max_epoch]
-                latest_checkpoint = max(checkpoint_files, key=lambda x: int(x.split('_')[-1].split('.')[0]))
-                current_checkpoint_file = os.path.join(self.checkpoint_path, latest_checkpoint)
+        current_checkpoint_file = None
+        checkpoint_files = [f for f in os.listdir(self.checkpoint_path) if f.endswith('.ckpt')]
+        if checkpoint_files:
+            chackpoint_files_max_epoch = max([int(f.split('_')[2]) for f in checkpoint_files])
+            checkpoint_files = [f for f in checkpoint_files if int(f.split('_')[2]) == chackpoint_files_max_epoch]
+            latest_checkpoint = max(checkpoint_files, key=lambda x: int(x.split('_')[-1].split('.')[0]))
+            current_checkpoint_file = os.path.join(self.checkpoint_path, latest_checkpoint)
 
-            checkpoint_file = os.path.join(self.checkpoint_path, f"{self.model_name}_epoch_{self.current_epoch}_step_{self.current_step}.ckpt")
-            torch.save({
-                'model_state_dict': self.model.module.state_dict(),
-                'optimizer_state_dict': self.optimizer.state_dict(),
-                'train_dataloader_state_dict': self.train_dataloader.state_dict() if hasattr(self, 'train_dataloader') else None,
-                'epoch': self.current_epoch,
-                'step': self.current_step
-            }, checkpoint_file)
+        checkpoint_file = os.path.join(self.checkpoint_path, f"{self.model_name}_epoch_{self.current_epoch}_step_{self.current_step}.ckpt")
+        torch.save({
+            'model_state_dict': self.model.module.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'train_dataloader_state_dict': self.train_dataloader.state_dict() if hasattr(self, 'train_dataloader') else None,
+            'epoch': self.current_epoch,
+            'step': self.current_step
+        }, checkpoint_file)
 
-            if current_checkpoint_file is not None:
-                os.remove(current_checkpoint_file)
+        if current_checkpoint_file is not None:
+            os.remove(current_checkpoint_file)
 
-            print(f"Checkpoint saved to {checkpoint_file}")
+        return checkpoint_file
 
     def load_checkpoint(self):
         if self.checkpoint_path and os.path.exists(self.checkpoint_path):
@@ -85,6 +84,14 @@ class Trainer:
                 self.current_epoch = checkpoint['epoch']
                 self.current_step = checkpoint['step']
                 print(f"Loaded checkpoint from {checkpoint_file}")
+
+    def save_weight(self):
+        if not os.path.exists(self.checkpoint_path):
+            os.makedirs(self.checkpoint_path)
+            
+        weight_file = os.path.join(self.checkpoint_path, f"{self.model_name}.pth")
+        torch.save(self.model.module.state_dict(), weight_file)
+        return weight_file
 
     def train(self):
         torch.cuda.set_device(self.gpu_id)
@@ -122,17 +129,20 @@ class Trainer:
                             dist.all_reduce(val_loss_avg, op=dist.ReduceOp.AVG)
                             if self.is_master:
                                 pbar_validation.set_postfix({"val_loss": val_loss_avg.item()})
-                    self.save_checkpoint()
+                    if self.is_master:
+                        checkpoint_file = self.save_checkpoint()
+                        weight_file = self.save_weight()
+                        tqdm.write(f"Checkpoint saved at {checkpoint_file}")
+                        tqdm.write(f"Weight saved at {weight_file}")
+            if self.is_master:
+                checkpoint_file = self.save_checkpoint()
+                weight_file = self.save_weight()
+                print(f"Checkpoint saved at {checkpoint_file}")
+                print(f"Weight saved at {weight_file}")
+ 
             self.current_step = 0
             self.current_epoch += 1
-
-        if self.is_master:
-            if not os.path.exists(self.checkpoint_path):
-                os.makedirs(self.checkpoint_path)
-            
-            weight_file = os.path.join(self.checkpoint_path, f"{self.model_name}.pth")
-            torch.save(self.model.module.cpu().state_dict(), weight_file)
-    
+   
         destroy_process_group()
     
     def calculate_loss(self, batch):

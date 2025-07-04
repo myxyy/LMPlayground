@@ -44,7 +44,7 @@ if __name__ == "__main__":
         validation_dataset=validation_dataset,
         batch_size=6,
         max_length=1024,
-        max_epochs=2,
+        max_epochs=1,
         model_name="qlstm",
         checkpoint_path="resources/checkpoints/qlstm",
         validation_checkpoint_interval=500
