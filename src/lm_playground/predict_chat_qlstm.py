@@ -8,12 +8,10 @@ config = QLSTMConfig(
     dim=1024,
     dim_ff_hidden=2048,
     num_layers=16,
-    dropout=0.1
-)
-model = QLSTMModel(
-    config=config,
+    dropout=0.1,
     vocab_size = tokenizer.vocab_size
 )
+model = QLSTMModel(config=config)
 model.load_state_dict(torch.load("resources/checkpoints/qlstm/qlstm.pth", map_location="cpu"))
 
 # print number of parameters

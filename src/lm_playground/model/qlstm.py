@@ -135,22 +135,23 @@ class QLSTMBlock(nn.Module):
 
 @dataclass
 class QLSTMConfig(PretrainedConfig):
+    vocab_size: int 
     dim: int = 1024
     dim_ff_hidden: int = 2048
     num_layers: int = 16
     dropout: float = 0.1
 
 class QLSTMModel(PreTrainedModel):
-    def __init__(self, config: QLSTMConfig, vocab_size: int):
+    def __init__(self, config: QLSTMConfig):
         super().__init__(config)
         self.dim = config.dim
         self.num_layers = config.num_layers
-        self.embedding = nn.Embedding(vocab_size, config.dim)
+        self.embedding = nn.Embedding(config.vocab_size, config.dim)
         self.layers = nn.ModuleList(
             [QLSTMBlock(config.dim, config.dim_ff_hidden, config.dropout) for _ in range(config.num_layers)]
         )
         self.norm = RMSNorm(config.dim)
-        self.fc_out = nn.Linear(config.dim, vocab_size)
+        self.fc_out = nn.Linear(config.dim, config.vocab_size)
 
         self._hidden_init = nn.Parameter(
             torch.zeros(config.num_layers, config.dim)
