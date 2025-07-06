@@ -9,7 +9,6 @@ from torch.distributed import init_process_group, destroy_process_group
 import os
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch
-from schedulefree import RAdamScheduleFree
 from torch.utils.data import DataLoader
 
 class Trainer:
@@ -20,6 +19,7 @@ class Trainer:
             train_dataset,
             validation_dataset,
             model_name,
+            optimizer,
             batch_size=1,
             max_length=4096,
             max_epochs=1,
@@ -34,7 +34,7 @@ class Trainer:
         self.validation_dataset = validation_dataset
         self.batch_size = batch_size
         self.max_length = max_length
-        self.optimizer = RAdamScheduleFree(self.model.parameters(), lr=1e-4, betas=(0.9, 0.999))
+        self.optimizer = optimizer
         self.max_epochs = max_epochs
         self.criterion = nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_token_id)
         self.model_name = model_name
@@ -108,7 +108,8 @@ class Trainer:
             pbar = tqdm(self.train_dataloader, initial=self.current_step, total=len(self.train_dataloader), disable=not self.is_master)
             for _, batch in enumerate(pbar):
                 self.model.train()
-                self.optimizer.train()
+                if hasattr(self.optimizer, 'train'):
+                    self.optimizer.train()
                 self.optimizer.zero_grad()
                 loss = self.calculate_loss(batch)
                 loss.backward()
@@ -120,7 +121,8 @@ class Trainer:
                 self.current_step += 1
                 if self.current_step % self.validation_checkpoint_interval == 0:
                     self.model.eval()
-                    self.optimizer.eval()
+                    if hasattr(self.optimizer, 'eval'):
+                        self.optimizer.eval()
                     pbar_validation = tqdm(self.validation_dataloader, disable=not self.is_master)
                     for _, val_batch in enumerate(pbar_validation):
                         with torch.no_grad():

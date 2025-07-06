@@ -28,7 +28,7 @@ class Generator:
 
     def generate_stream(self, text_prefix, streamer, temperature=1.0, end_token_id=None):
         if self._hidden is None:
-            self._hidden = self.model.hidden_init[None, :, :]
+            self._hidden = self.model.hidden_init(1)
         tokenized_prefix = self.tokenizer(text_prefix, return_tensors="pt")["input_ids"]
 
         x = tokenized_prefix.cuda() 

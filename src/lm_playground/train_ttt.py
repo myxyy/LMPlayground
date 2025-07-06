@@ -1,8 +1,9 @@
 from datasets import load_dataset, concatenate_datasets
 from transformers import AutoTokenizer
-from lm_playground.model.qlstm import QLSTMModel, QLSTMConfig
+from lm_playground.model.ttt import TTTModel, TTTLMConfig
 from lm_playground.trainer import Trainer
 import torch
+import os
 from schedulefree import RAdamScheduleFree
 
 if __name__ == "__main__":
@@ -26,28 +27,37 @@ if __name__ == "__main__":
     validation_size = 1000
     train_dataset, validation_dataset = torch.utils.data.random_split(dataset, [len(dataset) - validation_size, validation_size], generator=torch.Generator().manual_seed(42))
 
-    config = QLSTMConfig(
+    config = TTTLMConfig(
         dim=1024,
         dim_ff_hidden=2048,
         num_layers=16,
         dropout=0.1,
-        vocab_size = tokenizer.vocab_size
+        num_head=8,
+        chunk_size=256,
+        vocab_size = tokenizer.vocab_size,
+        base_lr=1e-5,
+        base_weight_decay=1e-4,
     )
-    model = QLSTMModel(config=config)
+    model = TTTModel(config=config)
     model.train()
 
-    optimizer = RAdamScheduleFree(model.parameters(), lr=1e-4, betas=(0.9, 0.999))
+    # print number of parameters
+    if int(os.environ["LOCAL_RANK"]) == 0:
+        num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f"Number of parameters: {num_params}")
+
+    optimizer = RAdamScheduleFree(model.parameters(), lr=1e-4, betas=(0.9, 0.999), weight_decay=1e-2)
 
     trainer = Trainer(
         model=model,
         tokenizer=tokenizer,
         train_dataset=train_dataset,
         validation_dataset=validation_dataset,
-        batch_size=6,
+        batch_size=3,
         max_length=1024,
         max_epochs=1,
-        model_name="qlstm",
-        checkpoint_path="resources/checkpoints/qlstm",
+        model_name="ttt",
+        checkpoint_path="resources/checkpoints/ttt",
         validation_checkpoint_interval=500,
         optimizer=optimizer
     )

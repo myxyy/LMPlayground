@@ -157,9 +157,8 @@ class QLSTMModel(PreTrainedModel):
             torch.zeros(config.num_layers, config.dim)
         )
 
-    @property
-    def hidden_init(self) -> Tensor:
-        return self._hidden_init
+    def hidden_init(self, batch):
+        return self._hidden_init[None, :].expand(batch, -1, -1)
 
     def get_input_embeddings(self) -> nn.Embedding:
         return self.embedding
@@ -186,7 +185,7 @@ class QLSTMModel(PreTrainedModel):
 
     def forward(self, x: Tensor) -> Tensor:
         batch, length = x.shape
-        hidden = self.hidden_init[None, :].expand(batch, -1, -1)
+        hidden = self.hidden_init(batch)
         hidden = hidden.reshape(batch, self.num_layers, self.dim)
 
         x, _ = self.forward_with_hidden(x, hidden)

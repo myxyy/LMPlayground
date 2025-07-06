@@ -49,9 +49,11 @@ class MultiHeadMLPTTTLayer(nn.Module):
         assert dim_hidden % num_head == 0, "dim_hidden must be divisible by num_head"
         self.dim_hidden = dim_hidden
         self.num_head = num_head
-        self.log_base_lr = nn.Parameter(torch.ones(num_head) * np.log(base_lr))
+        self.log_base_lr = np.log(base_lr)
+        self.log_base_lr_diff = nn.Parameter(torch.zeros(num_head))
         self.fc_lr = nn.Linear(dim, num_head)
-        self.log_base_weight_decay = nn.Parameter(torch.ones(num_head) * np.log(base_weight_decay))
+        self.log_base_weight_decay = np.log(base_weight_decay)
+        self.log_base_weight_decay_diff = nn.Parameter(torch.zeros(num_head))
         self.fc_weight_decay = nn.Linear(dim, num_head)
         self.fc_query = nn.Linear(dim, dim)
         self.fc_key = nn.Linear(dim, dim)
@@ -79,8 +81,8 @@ class MultiHeadMLPTTTLayer(nn.Module):
         query = self.fc_query(x).view(batch, length, num_head, head_dim).transpose(2,1) # (batch, num_head, length, head_dim)
         key = self.fc_key(x).view(batch, length, num_head, head_dim).transpose(2,1) # (batch, num_head, length, head_dim)
         value = self.fc_value(x).view(batch, length, num_head, head_dim).transpose(2,1) # (batch, num_head, length, head_dim)
-        lr = torch.exp(self.log_base_lr)[None,:,None] * F.sigmoid(self.fc_lr(x)).transpose(2,1) # (batch, num_head, length)
-        log_weight_decay = torch.log(1-torch.exp(self.log_base_weight_decay)[None,:,None] * F.sigmoid(self.fc_weight_decay(x)).transpose(2,1)) # (batch, num_head, length)
+        lr = torch.exp(self.log_base_lr + self.log_base_lr_diff)[None,:,None] * F.sigmoid(self.fc_lr(x)).transpose(2,1) # (batch, num_head, length)
+        log_weight_decay = torch.log(1-torch.exp(self.log_base_weight_decay + self.log_base_weight_decay_diff)[None,:,None] * F.sigmoid(self.fc_weight_decay(x)).transpose(2,1)) # (batch, num_head, length)
         weight_decay_cross_chunk = torch.exp(torch.cumsum(log_weight_decay, dim=2)) # (batch, num_head, length)
         weight_decay_inner_chunk = torch.exp(torch.cumsum(einops.repeat(log_weight_decay, "b n l -> b n m l", m=length).triu(1), dim=3)).triu() # (batch, num_head, length, length)
         X1 = key # (batch, num_head, length, head_dim)
@@ -175,7 +177,7 @@ class TTTLMConfig(PretrainedConfig):
     dropout: float
     chunk_size: int
 
-class TTTLM(PreTrainedModel):
+class TTTModel(PreTrainedModel):
     def __init__(
         self,
         config: TTTLMConfig,
