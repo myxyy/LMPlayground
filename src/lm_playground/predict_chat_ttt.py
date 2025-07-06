@@ -12,8 +12,8 @@ config = TTTLMConfig(
     num_head=8,
     chunk_size=256,
     vocab_size = tokenizer.vocab_size,
-    base_lr=1e-5,
-    base_weight_decay=1e-4,
+    base_lr=1e-3,
+    base_weight_decay=1e-1,
 )
 model = TTTModel(config=config)
 model.load_state_dict(torch.load("resources/checkpoints/ttt/ttt.pth", map_location="cpu"))
