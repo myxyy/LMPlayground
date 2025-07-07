@@ -1,6 +1,6 @@
 from datasets import load_dataset, concatenate_datasets
 from transformers import AutoTokenizer
-from lm_playground.model.qlstm import QLSTMModel, QLSTMConfig
+from lm_playground.model.qgru import QGRUModel, QGRUConfig
 from lm_playground.trainer import Trainer
 import torch
 from schedulefree import RAdamScheduleFree
@@ -27,14 +27,14 @@ if __name__ == "__main__":
     validation_size = 1000
     train_dataset, validation_dataset = torch.utils.data.random_split(dataset, [len(dataset) - validation_size, validation_size], generator=torch.Generator().manual_seed(42))
 
-    config = QLSTMConfig(
+    config = QGRUConfig(
         dim=1024,
         dim_ff_hidden=2048,
         num_layers=16,
         dropout=0.1,
         vocab_size = tokenizer.vocab_size
     )
-    model = QLSTMModel(config=config)
+    model = QGRUModel(config=config)
     model.train()
 
     # print number of parameters
@@ -52,8 +52,8 @@ if __name__ == "__main__":
         batch_size=6,
         max_length=1024,
         max_epochs=1,
-        model_name="qlstm",
-        checkpoint_path="resources/checkpoints/qlstm",
+        model_name="qgru",
+        checkpoint_path="resources/checkpoints/qgru",
         validation_checkpoint_interval=500,
         optimizer=optimizer
     )
