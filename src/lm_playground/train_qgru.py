@@ -29,7 +29,7 @@ if __name__ == "__main__":
 
     config = QGRUConfig(
         dim=1024,
-        dim_ff_hidden=2048,
+        dim_hidden=2048,
         num_layers=16,
         dropout=0.1,
         vocab_size = tokenizer.vocab_size

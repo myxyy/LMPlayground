@@ -78,40 +78,43 @@ def scan(a: Tensor, b: Tensor) -> Tensor:
 
 
 class QGRULayer(nn.Module):
-    def __init__(self, dim: int):
+    def __init__(self, dim: int, dim_hidden: int):
         super().__init__()
         self.dim = dim
-        self.fc_forget = nn.Linear(dim, dim)
-        self.fc_input = nn.Linear(dim, dim)
+        self.dim_hidden = dim_hidden
+        self.fc_forget = nn.Linear(dim, dim_hidden)
+        self.fc_input = nn.Linear(dim, dim_hidden)
         self.sigmoid = nn.Sigmoid()
         self.tanh = nn.Tanh()
+        self.fc_out = nn.Linear(dim_hidden, dim)
 
     def forward(self, x: Tensor, hidden: Tensor) -> tuple[Tensor, Tensor]:
         batch, len, dim = x.shape
 
-        remember = F.sigmoid(self.fc_forget(x)) * torch.linspace(0.0, 1.0, dim, device=x.device)[None, None, :] # (batch, len, dim)
+        remember = F.sigmoid(self.fc_forget(x)) * torch.linspace(0.0, 1.0, self.dim_hidden, device=x.device)[None, None, :]
         forget = 1 - remember
 
         input = self.tanh(self.fc_input(x))
         h_inner_chunk = (
             scan(
-                forget.transpose(2, 1).reshape(batch * dim, len),
-                (input * remember).transpose(2, 1).reshape(batch * dim, len),
+                forget.transpose(2, 1).reshape(batch * self.dim_hidden, len),
+                (input * remember).transpose(2, 1).reshape(batch * self.dim_hidden, len),
             )
-            .reshape(batch, dim, len)
+            .reshape(batch, self.dim_hidden, len)
             .transpose(2, 1)
         )
 
         h = torch.addcmul(h_inner_chunk, hidden[:, None, :], forget.cumprod(1))
+        y = self.fc_out(h)
 
-        return h, h[:, -1, :]
+        return y, h[:, -1, :]
 
 
 class QGRUBlock(nn.Module):
-    def __init__(self, dim: int, dim_ff_hidden: int, dropout: float):
+    def __init__(self, dim: int, dim_hidden: int, dropout: float):
         super().__init__()
-        self.qlstm = QGRULayer(dim)
-        self.ffn = FFNSwiGLU(dim, dim_ff_hidden)
+        self.qlstm = QGRULayer(dim, dim_hidden)
+        self.ffn = FFNSwiGLU(dim, dim_hidden)
         self.norm_qlstm = RMSNorm(dim)
         self.norm_ffn = RMSNorm(dim)
         self.dropout = nn.Dropout(dropout)
@@ -135,7 +138,7 @@ class QGRUBlock(nn.Module):
 class QGRUConfig(PretrainedConfig):
     vocab_size: int 
     dim: int = 1024
-    dim_ff_hidden: int = 2048
+    dim_hidden: int = 2048
     num_layers: int = 16
     dropout: float = 0.1
 
@@ -146,13 +149,13 @@ class QGRUModel(PreTrainedModel):
         self.num_layers = config.num_layers
         self.embedding = nn.Embedding(config.vocab_size, config.dim)
         self.layers = nn.ModuleList(
-            [QGRUBlock(config.dim, config.dim_ff_hidden, config.dropout) for _ in range(config.num_layers)]
+            [QGRUBlock(config.dim, config.dim_hidden, config.dropout) for _ in range(config.num_layers)]
         )
         self.norm = RMSNorm(config.dim)
         self.fc_out = nn.Linear(config.dim, config.vocab_size)
 
         self._hidden_init = nn.Parameter(
-            torch.zeros(config.num_layers, config.dim)
+            torch.zeros(config.num_layers, config.dim_hidden)
         )
 
     def hidden_init(self, batch):
@@ -184,7 +187,6 @@ class QGRUModel(PreTrainedModel):
     def forward(self, x: Tensor) -> Tensor:
         batch, length = x.shape
         hidden = self.hidden_init(batch)
-        hidden = hidden.reshape(batch, self.num_layers, self.dim)
 
         x, _ = self.forward_with_hidden(x, hidden)
         return x
