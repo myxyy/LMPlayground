@@ -12,6 +12,7 @@ uv.lock
 sp/*.model
 src/test.py
 resources/*
+!resources/.gitkeep
 .venv/
 .env
 src/lm_playground/test.py
