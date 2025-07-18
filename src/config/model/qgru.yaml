@@ -1,0 +1,12 @@
+
+config:
+  _target_: lm_playground.model.qgru.QGRUConfig
+  _partial_: true
+  dim: 1024
+  dim_hidden: 2048
+  num_layers: 32
+  dropout: 0.1
+
+model:
+  _target_: lm_playground.model.qgru.QGRUModel
+  _partial_: true

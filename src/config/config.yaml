@@ -1,0 +1,6 @@
+
+defaults:
+  - _self_
+  - model: null
+  - train: default
+  - experiment: qgru

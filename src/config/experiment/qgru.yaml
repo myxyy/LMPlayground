@@ -1,0 +1,8 @@
+# @package _global_
+
+defaults:
+  - override /model: qgru
+
+experiment:
+  model_name: "qgru"
+  checkpoint_path: "resources/checkpoints/qgru"

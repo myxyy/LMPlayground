@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     screen \
     vim \
+    build-essential \
 && apt-get clean
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/

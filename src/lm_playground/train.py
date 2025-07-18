@@ -1,22 +1,25 @@
 from datasets import load_dataset, concatenate_datasets
 from transformers import AutoTokenizer
-from lm_playground.model.ttt import TTTModel, TTTLMConfig
+from lm_playground.model.qgru import QGRUModel, QGRUConfig
 from lm_playground.trainer import Trainer
 import torch
-import os
 from schedulefree import RAdamScheduleFree
+import os
+import hydra
+from hydra.utils import instantiate
 
-if __name__ == "__main__":
+@hydra.main(version_base=None, config_path="../config/", config_name="config")
+def main(cfg):
     tokenizer = AutoTokenizer.from_pretrained("elyza/ELYZA-japanese-Llama-2-7b-fast", cache_dir="resources/tokenizers")
 
-    dataset_wiki = load_dataset("graelo/wikipedia", "20230601.ja", split="train", cache_dir="resources/datasets", trust_remote_code=True)
+    dataset_wiki = load_dataset("wikimedia/wikipedia", "20231101.ja", split="train", cache_dir="resources/datasets")
     dataset_wiki_columns = [col for col in dataset_wiki.column_names if col != "text"]
     dataset_wiki = dataset_wiki.remove_columns(dataset_wiki_columns)
     #dataset = load_dataset("globis-university/aozorabunko-clean", split="train", cache_dir="resources/datasets")
     #dataset = dataset["text"]
     #dataset = dataset.take(100000)
 
-    dataset_chat = load_dataset("shi3z/ja_conv_wikipedia_orion14B_100K", split="train", cache_dir="resources/datasets", trust_remote_code=True)
+    dataset_chat = load_dataset("shi3z/ja_conv_wikipedia_orion14B_100K", split="train", cache_dir="resources/datasets")
     bos = tokenizer.bos_token
     b_inst, e_inst = "[INST]", "[/INST]"
     #dataset_chat = dataset_chat.map(lambda x : {"text": bos.join([t["value"] for t in x["conversations"]]) + bos})
@@ -27,18 +30,10 @@ if __name__ == "__main__":
     validation_size = 1000
     train_dataset, validation_dataset = torch.utils.data.random_split(dataset, [len(dataset) - validation_size, validation_size], generator=torch.Generator().manual_seed(42))
 
-    config = TTTLMConfig(
-        dim=1024,
-        dim_ff_hidden=2048,
-        num_layers=16,
-        dropout=0.1,
-        num_head=8,
-        chunk_size=256,
-        vocab_size = tokenizer.vocab_size,
-        base_lr=1e-3,
-        base_weight_decay=1e-1,
-    )
-    model = TTTModel(config=config)
+    partial_config = instantiate(cfg.model.config)
+    config = partial_config(vocab_size = tokenizer.vocab_size)
+    partial_model = instantiate(cfg.model.model)
+    model = partial_model(config=config)
     model.train()
 
     # print number of parameters
@@ -46,20 +41,24 @@ if __name__ == "__main__":
         num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f"Number of parameters: {num_params}")
 
-    optimizer = RAdamScheduleFree(model.parameters(), lr=1e-4, betas=(0.9, 0.999), weight_decay=1e-2)
+    partial_optimizer = instantiate(cfg.train.optimizer)
+    optimizer = partial_optimizer(params=model.parameters())
 
     trainer = Trainer(
         model=model,
         tokenizer=tokenizer,
         train_dataset=train_dataset,
         validation_dataset=validation_dataset,
-        batch_size=3,
-        max_length=1024,
-        max_epochs=1,
-        model_name="ttt",
-        checkpoint_path="resources/checkpoints/ttt",
-        validation_checkpoint_interval=500,
+        batch_size=cfg.train.batch_size,
+        max_length=cfg.train.max_length,
+        max_epochs=cfg.train.max_epochs,
+        model_name=cfg.experiment.model_name,
+        checkpoint_path=cfg.experiment.checkpoint_path,
+        validation_checkpoint_interval=cfg.train.validation_checkpoint_interval,
         optimizer=optimizer
     )
 
     trainer.train()
+
+if __name__ == "__main__":
+    main()
