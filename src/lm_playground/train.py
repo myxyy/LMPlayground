@@ -1,17 +1,13 @@
 from datasets import load_dataset, concatenate_datasets
-from transformers import AutoTokenizer
-from lm_playground.model.qgru import QGRUModel, QGRUConfig
 from lm_playground.trainer import Trainer
 import torch
-from schedulefree import RAdamScheduleFree
 import os
 import hydra
 from hydra.utils import instantiate
 
 @hydra.main(version_base=None, config_path="../config/", config_name="config")
 def main(cfg):
-    tokenizer = AutoTokenizer.from_pretrained("elyza/ELYZA-japanese-Llama-2-7b-fast", cache_dir="resources/tokenizers")
-
+    tokenizer = instantiate(cfg.tokenizer.tokenizer)
     dataset_wiki = load_dataset("wikimedia/wikipedia", "20231101.ja", split="train", cache_dir="resources/datasets")
     dataset_wiki_columns = [col for col in dataset_wiki.column_names if col != "text"]
     dataset_wiki = dataset_wiki.remove_columns(dataset_wiki_columns)

@@ -1,5 +1,4 @@
-from transformers import AutoTokenizer, TextStreamer
-from lm_playground.model.qlstm import QLSTMModel, QLSTMConfig
+from transformers import TextStreamer
 from lm_playground.generator import Generator
 import torch
 import hydra
@@ -7,14 +6,7 @@ from hydra.utils import instantiate
 
 @hydra.main(version_base=None, config_path="../config/", config_name="config")
 def main(cfg):
-    tokenizer = AutoTokenizer.from_pretrained("elyza/ELYZA-japanese-Llama-2-7b-fast", cache_dir="resources/tokenizers")
-    config = QLSTMConfig(
-        dim=1024,
-        dim_ff_hidden=2048,
-        num_layers=16,
-        dropout=0.1,
-        vocab_size = tokenizer.vocab_size
-    )
+    tokenizer = instantiate(cfg.tokenizer.tokenizer)
     partial_config = instantiate(cfg.model.config)
     config = partial_config(vocab_size = tokenizer.vocab_size)
     partial_model = instantiate(cfg.model.model)

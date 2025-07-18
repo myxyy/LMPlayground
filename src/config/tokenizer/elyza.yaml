@@ -1,0 +1,4 @@
+tokenizer:
+  _target_: transformers.AutoTokenizer.from_pretrained
+  pretrained_model_name_or_path: "elyza/ELYZA-japanese-Llama-2-7b-fast"
+  cache_dir: "resources/tokenizers"
