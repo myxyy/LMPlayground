@@ -9,14 +9,14 @@ import os
 if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained("elyza/ELYZA-japanese-Llama-2-7b-fast", cache_dir="resources/tokenizers")
 
-    dataset_wiki = load_dataset("graelo/wikipedia", "20230601.ja", split="train", cache_dir="resources/datasets", trust_remote_code=True)
+    dataset_wiki = load_dataset("wikimedia/wikipedia", "20231101.ja", split="train", cache_dir="resources/datasets")
     dataset_wiki_columns = [col for col in dataset_wiki.column_names if col != "text"]
     dataset_wiki = dataset_wiki.remove_columns(dataset_wiki_columns)
     #dataset = load_dataset("globis-university/aozorabunko-clean", split="train", cache_dir="resources/datasets")
     #dataset = dataset["text"]
     #dataset = dataset.take(100000)
 
-    dataset_chat = load_dataset("shi3z/ja_conv_wikipedia_orion14B_100K", split="train", cache_dir="resources/datasets", trust_remote_code=True)
+    dataset_chat = load_dataset("shi3z/ja_conv_wikipedia_orion14B_100K", split="train", cache_dir="resources/datasets")
     bos = tokenizer.bos_token
     b_inst, e_inst = "[INST]", "[/INST]"
     #dataset_chat = dataset_chat.map(lambda x : {"text": bos.join([t["value"] for t in x["conversations"]]) + bos})
@@ -30,7 +30,7 @@ if __name__ == "__main__":
     config = QGRUConfig(
         dim=1024,
         dim_hidden=2048,
-        num_layers=16,
+        num_layers=32,
         dropout=0.1,
         vocab_size = tokenizer.vocab_size
     )
@@ -49,7 +49,7 @@ if __name__ == "__main__":
         tokenizer=tokenizer,
         train_dataset=train_dataset,
         validation_dataset=validation_dataset,
-        batch_size=6,
+        batch_size=2,
         max_length=1024,
         max_epochs=1,
         model_name="qgru",

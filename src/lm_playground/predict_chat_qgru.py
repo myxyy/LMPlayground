@@ -7,7 +7,7 @@ tokenizer = AutoTokenizer.from_pretrained("elyza/ELYZA-japanese-Llama-2-7b-fast"
 config = QGRUConfig(
     dim=1024,
     dim_hidden=2048,
-    num_layers=16,
+    num_layers=32,
     dropout=0.1,
     vocab_size = tokenizer.vocab_size
 )
