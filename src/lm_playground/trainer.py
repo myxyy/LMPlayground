@@ -105,7 +105,7 @@ class Trainer:
         self.load_checkpoint()
 
         while self.current_epoch < self.max_epochs:
-            pbar = tqdm(self.train_dataloader, initial=self.current_step, total=len(self.train_dataloader), disable=not self.is_master)
+            pbar = tqdm(self.train_dataloader, initial=self.current_step, total=len(self.train_dataloader), disable=not self.is_master, dynamic_ncols=True)
             for _, batch in enumerate(pbar):
                 self.model.train()
                 if hasattr(self.optimizer, 'train'):

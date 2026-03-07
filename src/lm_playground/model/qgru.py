@@ -134,13 +134,21 @@ class QGRUBlock(nn.Module):
 
         return x, hidden
 
-@dataclass
 class QGRUConfig(PretrainedConfig):
-    vocab_size: int 
-    dim: int = 1024
-    dim_hidden: int = 2048
-    num_layers: int = 16
-    dropout: float = 0.1
+    def __init__(
+        self,
+        vocab_size: int,
+        dim: int = 1024,
+        dim_hidden: int = 2048,
+        num_layers: int = 16,
+        dropout: float = 0.1
+    ):
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.dim = dim
+        self.dim_hidden = dim_hidden
+        self.num_layers = num_layers
+        self.dropout = dropout
 
 class QGRUModel(PreTrainedModel):
     def __init__(self, config: QGRUConfig):

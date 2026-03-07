@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     make \
     ca-certificates \
-    screen \
+    tmux \
     vim \
     build-essential \
 && apt-get clean
