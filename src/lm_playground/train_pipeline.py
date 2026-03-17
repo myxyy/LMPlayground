@@ -375,17 +375,18 @@ class PipelineTrainer:
 
                 # Pipeline step
                 if self.is_first:
-                    losses = schedule.step(inputs)
+                    schedule.step(inputs)
                 elif self.is_last:
                     losses = schedule.step(target=targets)
                 else:
-                    losses = schedule.step()
+                    schedule.step()
 
                 self.optimizer.step()
 
-                # Log loss (only last stage has the real loss)
-                if self.is_last and losses is not None:
-                    loss_tensor = torch.tensor(self._extract_loss(losses), device=self.device)
+                # Log loss (only last stage computes the loss)
+                if self.is_last:
+                    loss_val = self._compute_loss(losses, loss_fn, targets)
+                    loss_tensor = torch.tensor(loss_val, device=self.device)
                 else:
                     loss_tensor = torch.tensor(0.0, device=self.device)
                 dist.broadcast(loss_tensor, src=self.world_size - 1)
@@ -395,7 +396,7 @@ class PipelineTrainer:
                 self.current_step += 1
 
                 if self.current_step % self.validation_checkpoint_interval == 0:
-                    self._validate(schedule, val_dl, val_sampler)
+                    self._validate(schedule, val_dl, val_sampler, loss_fn)
                     dist.barrier()
                     ckpt = self.save_checkpoint()
                     wt = self.save_weight()
@@ -408,7 +409,7 @@ class PipelineTrainer:
             self.current_step = 0
             self.current_epoch += 1
 
-    def _validate(self, schedule, val_dl, val_sampler):
+    def _validate(self, schedule, val_dl, val_sampler, loss_fn):
         self.stage_module.eval()
         if hasattr(self.optimizer, "eval"):
             self.optimizer.eval()
@@ -418,13 +419,14 @@ class PipelineTrainer:
                 inputs = batch["input_ids"][:, :-1].to(self.device)
                 targets = batch["input_ids"][:, 1:].to(self.device)
                 if self.is_first:
-                    losses = schedule.step(inputs)
+                    schedule.step(inputs)
                 elif self.is_last:
-                    losses = schedule.step(target=targets)
+                    outputs = schedule.step(target=targets)
                 else:
-                    losses = schedule.step()
-                if self.is_last and losses is not None:
-                    loss_tensor = torch.tensor(self._extract_loss(losses), device=self.device)
+                    schedule.step()
+                if self.is_last:
+                    loss_val = self._compute_loss(outputs, loss_fn, targets)
+                    loss_tensor = torch.tensor(loss_val, device=self.device)
                 else:
                     loss_tensor = torch.tensor(0.0, device=self.device)
                 dist.broadcast(loss_tensor, src=self.world_size - 1)
@@ -432,13 +434,24 @@ class PipelineTrainer:
                     pbar.set_postfix({"val_loss": loss_tensor.item()})
 
     @staticmethod
-    def _extract_loss(losses) -> float:
-        """Handle losses returned as a Tensor, a list of Tensors, or a scalar."""
-        if isinstance(losses, torch.Tensor):
-            return losses.mean().item()
-        if isinstance(losses, (list, tuple)):
-            return sum(l.item() for l in losses) / len(losses)
-        return float(losses)
+    def _compute_loss(output, loss_fn, targets) -> float:
+        """Compute loss from pipeline output on the last stage.
+
+        schedule.step() may return output logits (Tensor) or a list of
+        per-microbatch outputs depending on PyTorch version.  We compute
+        the loss explicitly here for reliable results.
+        """
+        if isinstance(output, torch.Tensor):
+            with torch.no_grad():
+                return loss_fn(output, targets).item()
+        if isinstance(output, (list, tuple)):
+            # Per-microbatch outputs — average their losses
+            # Split targets to match microbatch sizes
+            mb_sizes = [o.shape[0] for o in output]
+            target_mbs = targets.split(mb_sizes)
+            total = sum(loss_fn(o, t).item() for o, t in zip(output, target_mbs))
+            return total / len(output)
+        return 0.0
 
 
 # ---------------------------------------------------------------------------
