@@ -150,6 +150,101 @@ class QGRUConfig(PretrainedConfig):
         self.num_layers = num_layers
         self.dropout = dropout
 
+class QGRUPipelineStage(nn.Module):
+    """A pipeline-parallel stage containing a subset of QGRUModel layers.
+
+    Each stage owns a contiguous slice of QGRUBlock layers.
+    The first stage additionally owns the embedding layer;
+    the last stage additionally owns the final norm and output projection.
+    """
+
+    def __init__(
+        self,
+        config: QGRUConfig,
+        layer_start: int,
+        layer_end: int,
+        is_first: bool,
+        is_last: bool,
+    ):
+        super().__init__()
+        self.is_first = is_first
+        self.is_last = is_last
+        self.dim = config.dim
+        self.dim_hidden = config.dim_hidden
+        self.num_local_layers = layer_end - layer_start
+
+        if is_first:
+            self.embedding = nn.Embedding(config.vocab_size, config.dim)
+
+        self.layers = nn.ModuleList(
+            [
+                QGRUBlock(config.dim, config.dim_hidden, config.dropout)
+                for _ in range(self.num_local_layers)
+            ]
+        )
+
+        if is_last:
+            self.norm = RMSNorm(config.dim)
+            self.fc_out = nn.Linear(config.dim, config.vocab_size)
+
+        self._hidden_init = nn.Parameter(
+            torch.zeros(self.num_local_layers, config.dim_hidden)
+        )
+
+    def forward(self, x: Tensor) -> Tensor:
+        if self.is_first:
+            x = self.embedding(x)
+
+        batch = x.shape[0]
+        hidden = self._hidden_init[None, :].expand(batch, -1, -1)
+
+        for i, layer in enumerate(self.layers):
+            x, _ = layer(x, hidden[:, i])
+
+        if self.is_last:
+            x = self.norm(x)
+            x = self.fc_out(x)
+
+        return x
+
+    @staticmethod
+    def split_config(num_layers: int, num_stages: int) -> list[dict]:
+        """Return split info dicts for *num_stages* pipeline stages."""
+        layers_per_stage = num_layers // num_stages
+        remainder = num_layers % num_stages
+        stages: list[dict] = []
+        start = 0
+        for i in range(num_stages):
+            end = start + layers_per_stage + (1 if i < remainder else 0)
+            stages.append(
+                {
+                    "layer_start": start,
+                    "layer_end": end,
+                    "is_first": i == 0,
+                    "is_last": i == num_stages - 1,
+                }
+            )
+            start = end
+        return stages
+
+    def load_from_full_model(self, full_state: dict, layer_start: int) -> None:
+        """Load weights from a full QGRUModel state_dict into this stage."""
+        own = {}
+        for k, v in full_state.items():
+            if self.is_first and k.startswith("embedding."):
+                own[k] = v
+            if k.startswith(f"layers."):
+                idx = int(k.split(".")[1])
+                if layer_start <= idx < layer_start + self.num_local_layers:
+                    new_key = f"layers.{idx - layer_start}.{'.'.join(k.split('.')[2:])}"
+                    own[new_key] = v
+            if self.is_last and (k.startswith("norm.") or k.startswith("fc_out.")):
+                own[k] = v
+            if k == "_hidden_init":
+                own["_hidden_init"] = v[layer_start : layer_start + self.num_local_layers]
+        self.load_state_dict(own)
+
+
 class QGRUModel(PreTrainedModel):
     def __init__(self, config: QGRUConfig):
         super().__init__(config)
