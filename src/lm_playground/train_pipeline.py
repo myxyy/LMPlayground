@@ -202,6 +202,11 @@ class PipelineTrainer:
         self.checkpoint_path = checkpoint_path
         self.validation_checkpoint_interval = validation_checkpoint_interval
         self.n_microbatches = n_microbatches
+        # Pipeline requires batch_size >= n_microbatches (each microbatch needs >= 1 sample)
+        self.batch_size = max(self.batch_size, self.n_microbatches)
+        if self.batch_size != batch_size and self.rank == 0:
+            print(f"NOTE: batch_size increased from {batch_size} to {self.batch_size} "
+                  f"(must be >= n_microbatches={self.n_microbatches})")
         self.current_step = 0
         self.current_epoch = 0
 
@@ -305,22 +310,11 @@ class PipelineTrainer:
     def _build_pipeline_stage(self):
         from torch.distributed.pipelining import PipelineStage
 
-        # Create example inputs for shape inference
-        if self.is_first:
-            example_input = torch.randint(
-                0, self.config.vocab_size, (self.batch_size, self.max_length), device=self.device
-            )
-        else:
-            example_input = torch.randn(
-                self.batch_size, self.max_length, self.config.dim, device=self.device
-            )
-
         stage = PipelineStage(
             self.stage_module,
             stage_index=self.rank,
             num_stages=self.world_size,
             device=self.device,
-            input_args=(example_input,),
         )
         return stage
 
@@ -390,9 +384,8 @@ class PipelineTrainer:
                 self.optimizer.step()
 
                 # Log loss (only last stage has the real loss)
-                if self.is_last and losses:
-                    loss_val = sum(l.item() for l in losses) / len(losses)
-                    loss_tensor = torch.tensor(loss_val, device=self.device)
+                if self.is_last and losses is not None:
+                    loss_tensor = torch.tensor(self._extract_loss(losses), device=self.device)
                 else:
                     loss_tensor = torch.tensor(0.0, device=self.device)
                 dist.broadcast(loss_tensor, src=self.world_size - 1)
@@ -430,14 +423,22 @@ class PipelineTrainer:
                     losses = schedule.step(target=targets)
                 else:
                     losses = schedule.step()
-                if self.is_last and losses:
-                    loss_val = sum(l.item() for l in losses) / len(losses)
-                    loss_tensor = torch.tensor(loss_val, device=self.device)
+                if self.is_last and losses is not None:
+                    loss_tensor = torch.tensor(self._extract_loss(losses), device=self.device)
                 else:
                     loss_tensor = torch.tensor(0.0, device=self.device)
                 dist.broadcast(loss_tensor, src=self.world_size - 1)
                 if self.is_first:
                     pbar.set_postfix({"val_loss": loss_tensor.item()})
+
+    @staticmethod
+    def _extract_loss(losses) -> float:
+        """Handle losses returned as a Tensor, a list of Tensors, or a scalar."""
+        if isinstance(losses, torch.Tensor):
+            return losses.mean().item()
+        if isinstance(losses, (list, tuple)):
+            return sum(l.item() for l in losses) / len(losses)
+        return float(losses)
 
 
 # ---------------------------------------------------------------------------
@@ -519,7 +520,7 @@ def main(cfg):
         init_process_group(backend="nccl")
 
         partial_optimizer = instantiate(cfg.train.optimizer)
-        n_microbatches = cfg.train.get("n_microbatches", max(2, cfg.train.batch_size))
+        n_microbatches = cfg.train.get("n_microbatches", max(world_size, cfg.train.batch_size))
 
         trainer = PipelineTrainer(
             config=config,
