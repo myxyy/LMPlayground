@@ -291,19 +291,27 @@ class PipelineTrainer:
         d = self.checkpoint_path
         if not d or not os.path.exists(d):
             return
+        # 1) Try pipeline-stage checkpoint first
         prefix = f"{self.model_name}_stage{self.rank}_"
         ckpts = [f for f in os.listdir(d) if f.startswith(prefix) and f.endswith(".ckpt")]
-        if not ckpts:
+        if ckpts:
+            latest = max(ckpts, key=lambda x: (int(x.split("epoch_")[1].split("_")[0]),
+                                                int(x.split("step_")[1].split(".")[0])))
+            ckpt = torch.load(os.path.join(d, latest), map_location="cpu")
+            self.stage_module.load_state_dict(ckpt["stage_state_dict"])
+            self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+            self.current_epoch = ckpt["epoch"]
+            self.current_step = ckpt["step"]
+            if self.is_first:
+                print(f"Loaded pipeline checkpoint: {latest}")
             return
-        latest = max(ckpts, key=lambda x: (int(x.split("epoch_")[1].split("_")[0]),
-                                            int(x.split("step_")[1].split(".")[0])))
-        ckpt = torch.load(os.path.join(d, latest), map_location="cpu")
-        self.stage_module.load_state_dict(ckpt["stage_state_dict"])
-        self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
-        self.current_epoch = ckpt["epoch"]
-        self.current_step = ckpt["step"]
-        if self.is_first:
-            print(f"Rank {self.rank}: loaded checkpoint {latest}")
+        # 2) Fall back to full-model .pth weights (e.g. from DDP training)
+        pth_path = os.path.join(d, f"{self.model_name}.pth")
+        if os.path.exists(pth_path):
+            full_state = torch.load(pth_path, map_location="cpu")
+            self.stage_module.load_from_full_model(full_state, self.stage_info["layer_start"])
+            if self.is_first:
+                print(f"Loaded full-model weights: {pth_path} (training resumes from epoch 0)")
 
     # -- pipeline schedule helpers --------------------------------------------
 
