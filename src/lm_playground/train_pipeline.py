@@ -259,24 +259,25 @@ class PipelineTrainer:
         dist.all_gather_object(gathered, (self.rank, self.stage_info, local_sd))
         if not self.is_first:
             return None
-        # Reconstruct full model state dict
+        # Reconstruct full model state dict (all tensors moved to CPU for saving)
         full_sd: dict[str, torch.Tensor] = {}
         for rank, info, sd in sorted(gathered, key=lambda x: x[0]):
             layer_start = info["layer_start"]
             for k, v in sd.items():
+                v_cpu = v.cpu() if isinstance(v, torch.Tensor) else v
                 if k.startswith("embedding."):
-                    full_sd[k] = v
+                    full_sd[k] = v_cpu
                 elif k.startswith("layers."):
                     parts = k.split(".")
                     local_idx = int(parts[1])
                     global_idx = layer_start + local_idx
-                    full_sd[f"layers.{global_idx}.{'.'.join(parts[2:])}"] = v
+                    full_sd[f"layers.{global_idx}.{'.'.join(parts[2:])}"] = v_cpu
                 elif k.startswith("norm.") or k.startswith("fc_out."):
-                    full_sd[k] = v
+                    full_sd[k] = v_cpu
                 elif k == "_hidden_init":
                     if "_hidden_init_parts" not in full_sd:
                         full_sd["_hidden_init_parts"] = {}
-                    full_sd["_hidden_init_parts"][layer_start] = v
+                    full_sd["_hidden_init_parts"][layer_start] = v_cpu
         # Combine _hidden_init
         if "_hidden_init_parts" in full_sd:
             parts = full_sd.pop("_hidden_init_parts")
@@ -345,6 +346,7 @@ class PipelineTrainer:
             pin_memory=True,
             sampler=train_sampler,
             num_workers=4,
+            drop_last=True,
         )
         val_sampler = DistributedSampler(self.validation_dataset, num_replicas=1, rank=0, shuffle=False)
         val_dl = DataLoader(
@@ -354,6 +356,7 @@ class PipelineTrainer:
             pin_memory=True,
             sampler=val_sampler,
             num_workers=4,
+            drop_last=True,
         )
 
         def loss_fn(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
@@ -404,7 +407,7 @@ class PipelineTrainer:
                 self.current_step += 1
 
                 if self.current_step % self.validation_checkpoint_interval == 0:
-                    self._validate(schedule, val_dl, val_sampler, loss_fn)
+                    self._validate(val_dl, val_sampler, loss_fn)
                     dist.barrier()
                     ckpt = self.save_checkpoint()
                     wt = self.save_weight()
@@ -417,29 +420,35 @@ class PipelineTrainer:
             self.current_step = 0
             self.current_epoch += 1
 
-    def _validate(self, schedule, val_dl, val_sampler, loss_fn):
+    def _validate(self, val_dl, val_sampler, loss_fn):
+        from torch.distributed.pipelining.schedules import ScheduleGPipe
+
         self.stage_module.eval()
         if hasattr(self.optimizer, "eval"):
             self.optimizer.eval()
+
+        stage = self._build_pipeline_stage()
+        val_schedule = ScheduleGPipe(stage, n_microbatches=self.n_microbatches, loss_fn=loss_fn)
+
         pbar = tqdm(val_dl, desc="val", disable=not self.is_first)
         for batch in pbar:
-            with torch.no_grad():
-                inputs = batch["input_ids"][:, :-1].to(self.device)
-                targets = batch["input_ids"][:, 1:].to(self.device)
-                if self.is_first:
-                    schedule.step(inputs)
-                elif self.is_last:
-                    outputs = schedule.step(target=targets)
-                else:
-                    schedule.step()
-                if self.is_last:
+            inputs = batch["input_ids"][:, :-1].to(self.device)
+            targets = batch["input_ids"][:, 1:].to(self.device)
+            if self.is_first:
+                val_schedule.step(inputs)
+            elif self.is_last:
+                outputs = val_schedule.step(target=targets)
+            else:
+                val_schedule.step()
+            if self.is_last:
+                with torch.no_grad():
                     loss_val = self._compute_loss(outputs, loss_fn, targets)
-                    loss_tensor = torch.tensor(loss_val, device=self.device)
-                else:
-                    loss_tensor = torch.tensor(0.0, device=self.device)
-                dist.broadcast(loss_tensor, src=self.world_size - 1)
-                if self.is_first:
-                    pbar.set_postfix({"val_loss": loss_tensor.item()})
+                loss_tensor = torch.tensor(loss_val, device=self.device)
+            else:
+                loss_tensor = torch.tensor(0.0, device=self.device)
+            dist.broadcast(loss_tensor, src=self.world_size - 1)
+            if self.is_first:
+                pbar.set_postfix({"val_loss": loss_tensor.item()})
 
     @staticmethod
     def _compute_loss(output, loss_fn, targets) -> float:
