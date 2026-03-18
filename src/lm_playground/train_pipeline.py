@@ -184,6 +184,7 @@ class PipelineTrainer:
         checkpoint_path: str,
         validation_checkpoint_interval: int,
         n_microbatches: int = 4,
+        keep_checkpoints: int = 2,
     ):
         self.rank = int(os.environ["LOCAL_RANK"])
         self.world_size = int(os.environ["WORLD_SIZE"])
@@ -202,6 +203,7 @@ class PipelineTrainer:
         self.checkpoint_path = checkpoint_path
         self.validation_checkpoint_interval = validation_checkpoint_interval
         self.n_microbatches = n_microbatches
+        self.keep_checkpoints = keep_checkpoints
         # Pipeline requires batch_size >= n_microbatches (each microbatch needs >= 1 sample)
         self.batch_size = max(self.batch_size, self.n_microbatches)
         if self.batch_size != batch_size and self.rank == 0:
@@ -248,7 +250,24 @@ class PipelineTrainer:
             },
             path,
         )
+        self._rotate_checkpoints()
         return path
+
+    def _rotate_checkpoints(self):
+        """Keep only the most recent `keep_checkpoints` stage checkpoints for this rank."""
+        if self.keep_checkpoints <= 0:
+            return
+        d = self.checkpoint_path
+        if not d or not os.path.exists(d):
+            return
+        prefix = f"{self.model_name}_stage{self.rank}_"
+        ckpts = [f for f in os.listdir(d) if f.startswith(prefix) and f.endswith(".ckpt")]
+        if len(ckpts) <= self.keep_checkpoints:
+            return
+        ckpts.sort(key=lambda x: (int(x.split("epoch_")[1].split("_")[0]),
+                                   int(x.split("step_")[1].split(".")[0])))
+        for old in ckpts[:-self.keep_checkpoints]:
+            os.remove(os.path.join(d, old))
 
     def save_weight(self):
         """Gather all stage weights into a full QGRUModel state_dict (rank 0 only)."""
@@ -565,6 +584,7 @@ def main(cfg):
             checkpoint_path=cfg.experiment.checkpoint_path,
             validation_checkpoint_interval=cfg.train.validation_checkpoint_interval,
             n_microbatches=n_microbatches,
+            keep_checkpoints=cfg.train.get("keep_checkpoints", 2),
         )
         trainer.train()
 

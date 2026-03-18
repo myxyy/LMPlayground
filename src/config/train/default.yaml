@@ -2,6 +2,7 @@ batch_size: 2
 max_length: 1024
 max_epochs: 4
 validation_checkpoint_interval: 500
+keep_checkpoints: 2
 optimizer:
   _target_: schedulefree.RAdamScheduleFree
   _partial_: true
