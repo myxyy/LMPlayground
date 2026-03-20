@@ -1,0 +1,8 @@
+# @package _global_
+
+defaults:
+  - override /model: qlstm
+
+experiment:
+  model_name: "qlstm"
+  checkpoint_path: "resources/checkpoints/qlstm"

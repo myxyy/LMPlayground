@@ -141,6 +141,118 @@ class QLSTMConfig(PretrainedConfig):
     num_layers: int = 16
     dropout: float = 0.1
 
+class QLSTMPipelineStage(nn.Module):
+    """A pipeline-parallel stage containing a subset of QLSTMModel layers."""
+
+    def __init__(
+        self,
+        config: QLSTMConfig,
+        layer_start: int,
+        layer_end: int,
+        is_first: bool,
+        is_last: bool,
+    ):
+        super().__init__()
+        self.is_first = is_first
+        self.is_last = is_last
+        self.dim = config.dim
+        self.num_local_layers = layer_end - layer_start
+
+        if is_first:
+            self.embedding = nn.Embedding(config.vocab_size, config.dim)
+
+        self.layers = nn.ModuleList(
+            [
+                QLSTMBlock(config.dim, config.dim_ff_hidden, config.dropout)
+                for _ in range(self.num_local_layers)
+            ]
+        )
+
+        if is_last:
+            self.norm = RMSNorm(config.dim)
+            self.fc_out = nn.Linear(config.dim, config.vocab_size)
+
+        self._hidden_init = nn.Parameter(
+            torch.zeros(self.num_local_layers, config.dim)
+        )
+
+    def forward(self, x: Tensor) -> Tensor:
+        if self.is_first:
+            x = self.embedding(x)
+
+        batch = x.shape[0]
+        hidden = self._hidden_init[None, :].expand(batch, -1, -1)
+
+        for i, layer in enumerate(self.layers):
+            x, _ = layer(x, hidden[:, i])
+
+        if self.is_last:
+            x = self.norm(x)
+            x = self.fc_out(x)
+
+        return x
+
+    @staticmethod
+    def split_config(num_layers: int, num_stages: int) -> list[dict]:
+        layers_per_stage = num_layers // num_stages
+        remainder = num_layers % num_stages
+        stages: list[dict] = []
+        start = 0
+        for i in range(num_stages):
+            end = start + layers_per_stage + (1 if i < remainder else 0)
+            stages.append(
+                {
+                    "layer_start": start,
+                    "layer_end": end,
+                    "is_first": i == 0,
+                    "is_last": i == num_stages - 1,
+                }
+            )
+            start = end
+        return stages
+
+    def load_from_full_model(self, full_state: dict, layer_start: int) -> None:
+        own = {}
+        for k, v in full_state.items():
+            if self.is_first and k.startswith("embedding."):
+                own[k] = v
+            if k.startswith("layers."):
+                idx = int(k.split(".")[1])
+                if layer_start <= idx < layer_start + self.num_local_layers:
+                    new_key = f"layers.{idx - layer_start}.{'.'.join(k.split('.')[2:])}"
+                    own[new_key] = v
+            if self.is_last and (k.startswith("norm.") or k.startswith("fc_out.")):
+                own[k] = v
+            if k == "_hidden_init":
+                own["_hidden_init"] = v[layer_start : layer_start + self.num_local_layers]
+        self.load_state_dict(own)
+
+    @staticmethod
+    def reconstruct_full_state_dict(gathered: list) -> dict:
+        full_sd: dict[str, torch.Tensor] = {}
+        hidden_parts: dict[int, torch.Tensor] = {}
+        for _rank, info, sd in sorted(gathered, key=lambda x: x[0]):
+            layer_start = info["layer_start"]
+            for k, v in sd.items():
+                v_cpu = v.cpu() if isinstance(v, torch.Tensor) else v
+                if k.startswith("embedding."):
+                    full_sd[k] = v_cpu
+                elif k.startswith("layers."):
+                    parts = k.split(".")
+                    local_idx = int(parts[1])
+                    global_idx = layer_start + local_idx
+                    full_sd[f"layers.{global_idx}.{'.'.join(parts[2:])}"] = v_cpu
+                elif k.startswith("norm.") or k.startswith("fc_out."):
+                    full_sd[k] = v_cpu
+                elif k == "_hidden_init":
+                    hidden_parts[layer_start] = v_cpu
+        if hidden_parts:
+            full_sd["_hidden_init"] = torch.cat(
+                [hidden_parts[k] for k in sorted(hidden_parts.keys())], dim=0
+            )
+        return full_sd
+
+
 class QLSTMModel(PreTrainedModel):
     def __init__(self, config: QLSTMConfig):
         super().__init__(config)

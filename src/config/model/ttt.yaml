@@ -1,0 +1,20 @@
+
+config:
+  _target_: lm_playground.model.ttt.TTTLMConfig
+  _partial_: true
+  dim: 1024
+  dim_ff_hidden: 2048
+  num_layers: 16
+  num_head: 8
+  base_lr: 0.01
+  base_weight_decay: 0.01
+  dropout: 0.1
+  chunk_size: 64
+
+model:
+  _target_: lm_playground.model.ttt.TTTModel
+  _partial_: true
+
+pipeline_stage:
+  _target_: lm_playground.model.ttt.TTTPipelineStage
+  _partial_: true

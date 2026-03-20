@@ -244,6 +244,35 @@ class QGRUPipelineStage(nn.Module):
                 own["_hidden_init"] = v[layer_start : layer_start + self.num_local_layers]
         self.load_state_dict(own)
 
+    @staticmethod
+    def reconstruct_full_state_dict(gathered: list) -> dict:
+        """Reconstruct full QGRUModel state_dict from gathered stage state dicts.
+
+        gathered: list of (rank, stage_info, state_dict)
+        """
+        full_sd: dict[str, torch.Tensor] = {}
+        hidden_parts: dict[int, torch.Tensor] = {}
+        for _rank, info, sd in sorted(gathered, key=lambda x: x[0]):
+            layer_start = info["layer_start"]
+            for k, v in sd.items():
+                v_cpu = v.cpu() if isinstance(v, torch.Tensor) else v
+                if k.startswith("embedding."):
+                    full_sd[k] = v_cpu
+                elif k.startswith("layers."):
+                    parts = k.split(".")
+                    local_idx = int(parts[1])
+                    global_idx = layer_start + local_idx
+                    full_sd[f"layers.{global_idx}.{'.'.join(parts[2:])}"] = v_cpu
+                elif k.startswith("norm.") or k.startswith("fc_out."):
+                    full_sd[k] = v_cpu
+                elif k == "_hidden_init":
+                    hidden_parts[layer_start] = v_cpu
+        if hidden_parts:
+            full_sd["_hidden_init"] = torch.cat(
+                [hidden_parts[k] for k in sorted(hidden_parts.keys())], dim=0
+            )
+        return full_sd
+
 
 class QGRUModel(PreTrainedModel):
     def __init__(self, config: QGRUConfig):

@@ -10,3 +10,7 @@ config:
 model:
   _target_: lm_playground.model.qgru.QGRUModel
   _partial_: true
+
+pipeline_stage:
+  _target_: lm_playground.model.qgru.QGRUPipelineStage
+  _partial_: true

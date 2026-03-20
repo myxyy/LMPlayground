@@ -1,0 +1,8 @@
+# @package _global_
+
+defaults:
+  - override /model: ttt
+
+experiment:
+  model_name: "ttt"
+  checkpoint_path: "resources/checkpoints/ttt"
