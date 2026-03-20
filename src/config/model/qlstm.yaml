@@ -1,0 +1,16 @@
+
+config:
+  _target_: lm_playground.model.qlstm.QLSTMConfig
+  _partial_: true
+  dim: 1024
+  dim_ff_hidden: 2048
+  num_layers: 32
+  dropout: 0.1
+
+model:
+  _target_: lm_playground.model.qlstm.QLSTMModel
+  _partial_: true
+
+pipeline_stage:
+  _target_: lm_playground.model.qlstm.QLSTMPipelineStage
+  _partial_: true

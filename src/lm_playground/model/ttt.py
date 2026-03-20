@@ -177,6 +177,107 @@ class TTTLMConfig(PretrainedConfig):
     dropout: float
     chunk_size: int
 
+class TTTPipelineStage(nn.Module):
+    """A pipeline-parallel stage containing a subset of TTTModel layers."""
+
+    def __init__(
+        self,
+        config: TTTLMConfig,
+        layer_start: int,
+        layer_end: int,
+        is_first: bool,
+        is_last: bool,
+    ):
+        super().__init__()
+        self.is_first = is_first
+        self.is_last = is_last
+        self.num_local_layers = layer_end - layer_start
+
+        if is_first:
+            self.embedding = nn.Embedding(config.vocab_size, config.dim)
+
+        self.block_list = nn.ModuleList(
+            [
+                NeuralMemoryBlock(
+                    config.dim, config.dim_ff_hidden, config.num_head,
+                    config.base_lr, config.base_weight_decay,
+                    config.chunk_size, config.dropout,
+                )
+                for _ in range(self.num_local_layers)
+            ]
+        )
+
+        if is_last:
+            self.norm_last = RMSNorm(config.dim)
+            self.token_out = nn.Linear(config.dim, config.vocab_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.is_first:
+            x = self.embedding(x)
+
+        batch = x.shape[0]
+        for block in self.block_list:
+            hidden = block.hidden_init(batch)
+            x, _ = block(x, hidden)
+
+        if self.is_last:
+            x = self.norm_last(x)
+            x = self.token_out(x)
+
+        return x
+
+    @staticmethod
+    def split_config(num_layers: int, num_stages: int) -> list[dict]:
+        layers_per_stage = num_layers // num_stages
+        remainder = num_layers % num_stages
+        stages: list[dict] = []
+        start = 0
+        for i in range(num_stages):
+            end = start + layers_per_stage + (1 if i < remainder else 0)
+            stages.append(
+                {
+                    "layer_start": start,
+                    "layer_end": end,
+                    "is_first": i == 0,
+                    "is_last": i == num_stages - 1,
+                }
+            )
+            start = end
+        return stages
+
+    def load_from_full_model(self, full_state: dict, layer_start: int) -> None:
+        own = {}
+        for k, v in full_state.items():
+            if self.is_first and k.startswith("embedding."):
+                own[k] = v
+            if k.startswith("block_list."):
+                idx = int(k.split(".")[1])
+                if layer_start <= idx < layer_start + self.num_local_layers:
+                    new_key = f"block_list.{idx - layer_start}.{'.'.join(k.split('.')[2:])}"
+                    own[new_key] = v
+            if self.is_last and (k.startswith("norm_last.") or k.startswith("token_out.")):
+                own[k] = v
+        self.load_state_dict(own)
+
+    @staticmethod
+    def reconstruct_full_state_dict(gathered: list) -> dict:
+        full_sd: dict[str, torch.Tensor] = {}
+        for _rank, info, sd in sorted(gathered, key=lambda x: x[0]):
+            layer_start = info["layer_start"]
+            for k, v in sd.items():
+                v_cpu = v.cpu() if isinstance(v, torch.Tensor) else v
+                if k.startswith("embedding."):
+                    full_sd[k] = v_cpu
+                elif k.startswith("block_list."):
+                    parts = k.split(".")
+                    local_idx = int(parts[1])
+                    global_idx = layer_start + local_idx
+                    full_sd[f"block_list.{global_idx}.{'.'.join(parts[2:])}"] = v_cpu
+                elif k.startswith("norm_last.") or k.startswith("token_out."):
+                    full_sd[k] = v_cpu
+        return full_sd
+
+
 class TTTModel(PreTrainedModel):
     def __init__(
         self,
