@@ -7,7 +7,6 @@ config:
   num_layers: 16
   num_head: 8
   base_lr: 0.01
-  base_weight_decay: 0.01
   dropout: 0.1
   chunk_size: 64
 

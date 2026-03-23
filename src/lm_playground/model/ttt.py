@@ -43,18 +43,16 @@ def silu_backward(x):
     return F.silu(x) + F.sigmoid(x) * (1 - F.silu(x))
 
 class MultiHeadMLPTTTLayer(nn.Module):
-    def __init__(self, dim: int, dim_hidden: int, num_head: int, base_lr: float, base_weight_decay: float):
+    def __init__(self, dim: int, dim_hidden: int, num_head: int, base_lr: float):
         super().__init__()
         assert dim % num_head == 0, "dim must be divisible by num_head"
         assert dim_hidden % num_head == 0, "dim_hidden must be divisible by num_head"
         self.dim_hidden = dim_hidden
         self.num_head = num_head
         self.log_base_lr = np.log(base_lr)
-        self.log_base_lr_diff = nn.Parameter(torch.zeros(num_head))
-        self.fc_lr = nn.Linear(dim, num_head)
-        self.log_base_weight_decay = np.log(base_weight_decay)
-        self.log_base_weight_decay_diff = nn.Parameter(torch.zeros(num_head))
-        self.fc_weight_decay = nn.Linear(dim, num_head)
+        self.log_base_lr_diff = nn.Parameter(torch.randn(num_head) * 0.01)
+        self.fc_lr1 = nn.Linear(dim, num_head)
+        self.fc_lr2 = nn.Linear(dim, num_head)
         self.fc_query = nn.Linear(dim, dim)
         self.fc_key = nn.Linear(dim, dim)
         self.fc_value = nn.Linear(dim, dim)
@@ -81,45 +79,65 @@ class MultiHeadMLPTTTLayer(nn.Module):
         query = self.fc_query(x).view(batch, length, num_head, head_dim).transpose(2,1) # (batch, num_head, length, head_dim)
         key = self.fc_key(x).view(batch, length, num_head, head_dim).transpose(2,1) # (batch, num_head, length, head_dim)
         value = self.fc_value(x).view(batch, length, num_head, head_dim).transpose(2,1) # (batch, num_head, length, head_dim)
-        lr = torch.exp(self.log_base_lr + self.log_base_lr_diff)[None,:,None] * F.sigmoid(self.fc_lr(x)).transpose(2,1) # (batch, num_head, length)
-        log_weight_decay = torch.log(1-torch.exp(self.log_base_weight_decay + self.log_base_weight_decay_diff)[None,:,None] * F.sigmoid(self.fc_weight_decay(x)).transpose(2,1)) # (batch, num_head, length)
-        weight_decay_cross_chunk = torch.exp(torch.cumsum(log_weight_decay, dim=2)) # (batch, num_head, length)
-        weight_decay_inner_chunk = torch.exp(torch.cumsum(einops.repeat(log_weight_decay, "b n l -> b n m l", m=length).triu(1), dim=3)).triu() # (batch, num_head, length, length)
+
+        lr1 = torch.exp(self.log_base_lr + self.log_base_lr_diff)[None,:,None] * F.sigmoid(self.fc_lr1(x)).transpose(2,1) # (batch, num_head, length)
+        log_weight_decay1 = torch.log(1-lr1) # (batch, num_head, length)
+        weight_decay_cross_chunk1 = torch.exp(torch.cumsum(log_weight_decay1, dim=2)) # (batch, num_head, length)
+        weight_decay_inner_chunk1 = torch.exp(torch.cumsum(einops.repeat(log_weight_decay1, "b n l -> b n m l", m=length).triu(1), dim=3)).triu() # (batch, num_head, length, length)
+
+        lr2 = torch.exp(self.log_base_lr + self.log_base_lr_diff)[None,:,None] * F.sigmoid(self.fc_lr2(x)).transpose(2,1) # (batch, num_head, length)
+        log_weight_decay2 = torch.log(1-lr2) # (batch, num_head, length)
+        weight_decay_cross_chunk2 = torch.exp(torch.cumsum(log_weight_decay2, dim=2)) # (batch, num_head, length)
+        weight_decay_inner_chunk2 = torch.exp(torch.cumsum(einops.repeat(log_weight_decay2, "b n l -> b n m l", m=length).triu(1), dim=3)).triu() # (batch, num_head, length, length)
+
         X1 = key # (batch, num_head, length, head_dim)
         Z1 = torch.einsum("b n h d, b n l d -> b n l h", W1_prev, X1) # (batch, num_head, length, head_dim_hidden)
         X2 = F.silu(Z1) # (batch, num_head, length, head_dim_hidden)
         Z2 = torch.einsum("b n d h, b n l h -> b n l d", W2_prev, X2) # (batch, num_head, length, head_dim)
-        grad_Z2 = Z2 - value # (batch, num_head, length, head_dim)
+        eps = 1e-5
+        LNZ2 = F.layer_norm(Z2, (head_dim,), eps=eps) # (batch, num_head, length, head_dim)
+        #grad_Z2 = Z2 - value # (batch, num_head, length, head_dim)
+        grad_LNZ2 = LNZ2 - value # (batch, num_head, length, head_dim)
+        grad_Z2 = (
+            (Z2.var(dim=-1, keepdim=True, correction=0) + eps) ** (-0.5)
+            / head_dim
+            * (
+                head_dim * grad_LNZ2
+                - grad_LNZ2.sum(dim=-1, keepdim=True)
+                - LNZ2 * (grad_LNZ2 * LNZ2).sum(dim=-1, keepdim=True)
+            )
+        )  # (batch, num_head, length, head_dim)
         grad_X2 = torch.einsum("b n d h, b n l d -> b n l h", W2_prev, grad_Z2) # (batch, num_head, length, head_dim_hidden)
         grad_Z1 = silu_backward(Z1) * grad_X2 # (batch, num_head, length, head_dim_hidden)
         #grad_X1 = torch.einsum("b n h d, b n l h -> b n l d", W1_prev, grad_Z1) # (batch, num_head, length, head_dim)
         X1_ = query
         X1X1_ = torch.einsum("b n l d, b n m d -> b n l m", X1, X1_) # (batch, num_head, length, length)
-        mask_X1X1_ = X1X1_ * weight_decay_inner_chunk # (batch, num_head, length, length)
-        Z1__inner_chunk = -torch.einsum("b n l h, b n l, b n l m -> b n m h", grad_Z1, lr, mask_X1X1_) # (batch, num_head, length, head_dim_hidden)
-        Z1__cross_chunk = torch.einsum("b n h d, b n l d, b n l -> b n l h", W1_prev, X1_, weight_decay_cross_chunk) # (batch, num_head, length, head_dim_hidden)
+        mask_X1X1_ = X1X1_ * weight_decay_inner_chunk1 # (batch, num_head, length, length)
+        Z1__inner_chunk = -torch.einsum("b n l h, b n l, b n l m -> b n m h", grad_Z1, lr1, mask_X1X1_) # (batch, num_head, length, head_dim_hidden)
+        Z1__cross_chunk = torch.einsum("b n h d, b n l d, b n l -> b n l h", W1_prev, X1_, weight_decay_cross_chunk1) # (batch, num_head, length, head_dim_hidden)
         Z1_ = Z1__inner_chunk + Z1__cross_chunk # (batch, num_head, length, head_dim_hidden)
-        W1_next_inner_chunk = -torch.einsum("b n l h, b n l, b n l d -> b n h d", grad_Z1, lr * weight_decay_inner_chunk[:,:,:,-1], X1) # (batch, num_head, head_dim_hidden, head_dim)
-        W1_next_cross_chunk = W1_prev * weight_decay_cross_chunk[:,:,-1][:,:,None,None] # (batch, num_head, head_dim_hidden, head_dim)
+        W1_next_inner_chunk = -torch.einsum("b n l h, b n l, b n l d -> b n h d", grad_Z1, lr1 * weight_decay_inner_chunk1[:,:,:,-1], X1) # (batch, num_head, head_dim_hidden, head_dim)
+        W1_next_cross_chunk = W1_prev * weight_decay_cross_chunk1[:,:,-1][:,:,None,None] # (batch, num_head, head_dim_hidden, head_dim)
         W1_next = W1_next_inner_chunk + W1_next_cross_chunk # (batch, num_head, head_dim_hidden, head_dim)
         X2_ = F.silu(Z1_) # (batch, num_head, length, head_dim_hidden)
         X2X2_ = torch.einsum("b n l h, b n m h -> b n l m", X2, X2_) # (batch, num_head, length, length)
-        mask_X2X2_ = X2X2_ * weight_decay_inner_chunk # (batch, num_head, length, length)
-        Z2__inner_chunk = -torch.einsum("b n l d, b n l, b n l m -> b n m d", grad_Z2, lr, mask_X2X2_) # (batch, num_head, length, head_dim_hidden)
-        Z2__cross_chunk = torch.einsum("b n d h, b n l h, b n l -> b n l d", W2_prev, X2_, weight_decay_cross_chunk) # (batch, num_head, length, head_dim)
+        mask_X2X2_ = X2X2_ * weight_decay_inner_chunk2 # (batch, num_head, length, length)
+        Z2__inner_chunk = -torch.einsum("b n l d, b n l, b n l m -> b n m d", grad_Z2, lr2, mask_X2X2_) # (batch, num_head, length, head_dim_hidden)
+        Z2__cross_chunk = torch.einsum("b n d h, b n l h, b n l -> b n l d", W2_prev, X2_, weight_decay_cross_chunk2) # (batch, num_head, length, head_dim)
         Z2_ = Z2__inner_chunk + Z2__cross_chunk # (batch, num_head, length, head_dim)
-        W2_next_inner_chunk = -torch.einsum("b n l d, b n l, b n l h -> b n d h", grad_Z2, lr * weight_decay_inner_chunk[:,:,:,-1], X2) # (batch, num_head, head_dim, head_dim_hidden)
-        W2_next_cross_chunk = W2_prev * weight_decay_cross_chunk[:,:,-1][:,:,None,None] # (batch, num_head, head_dim, head_dim_hidden)
+        W2_next_inner_chunk = -torch.einsum("b n l d, b n l, b n l h -> b n d h", grad_Z2, lr2 * weight_decay_inner_chunk2[:,:,:,-1], X2) # (batch, num_head, head_dim, head_dim_hidden)
+        W2_next_cross_chunk = W2_prev * weight_decay_cross_chunk2[:,:,-1][:,:,None,None] # (batch, num_head, head_dim, head_dim_hidden)
         W2_next = W2_next_inner_chunk + W2_next_cross_chunk # (batch, num_head, head_dim, head_dim_hidden)
         hidden_next = {"W1": W1_next, "W2": W2_next}
-        return self.fc_out(Z2_.transpose(2,1).reshape(batch, length, dim)), hidden_next
+        LNZ2_ = F.layer_norm(Z2_, (head_dim,), eps=eps) # (batch, num_head, length, head_dim)
+        return self.fc_out(LNZ2_.transpose(2,1).reshape(batch, length, dim)), hidden_next
 
 
 class ChunkwiseTTTMLP(nn.Module):
-    def __init__(self, dim: int, dim_hidden: int, num_head: int, base_lr: float, base_weight_decay: float, chunk_size: int):
+    def __init__(self, dim: int, dim_hidden: int, num_head: int, base_lr: float, chunk_size: int):
         super().__init__()
         self.chunk_size = chunk_size
-        self.memory = MultiHeadMLPTTTLayer(dim, dim_hidden, num_head, base_lr, base_weight_decay)
+        self.memory = MultiHeadMLPTTTLayer(dim, dim_hidden, num_head, base_lr)
         self.last_hidden = None
         head_dim = dim // num_head
         head_dim_hidden = dim_hidden // num_head
@@ -139,9 +157,9 @@ class ChunkwiseTTTMLP(nn.Module):
         return torch.cat(output_chunks, dim=1), hidden
 
 class NeuralMemoryBlock(nn.Module):
-    def __init__(self, dim: int, dim_ff_hidden: int, num_head: int, base_lr: float, base_weight_decay: float, chunk_size: int, dropout: float):
+    def __init__(self, dim: int, dim_ff_hidden: int, num_head: int, base_lr: float, chunk_size: int, dropout: float):
         super().__init__()
-        self.memory = ChunkwiseTTTMLP(dim, dim_ff_hidden, num_head, base_lr, base_weight_decay, chunk_size)
+        self.memory = ChunkwiseTTTMLP(dim, dim_ff_hidden, num_head, base_lr, chunk_size)
         self.ffn = FFNSwiGLU(dim, dim_ff_hidden)
         self.norm_memory = RMSNorm(dim)
         self.norm_ffn = RMSNorm(dim)
@@ -165,17 +183,27 @@ class NeuralMemoryBlock(nn.Module):
 
         return x, hidden
 
-@dataclass
 class TTTLMConfig(PretrainedConfig):
-    vocab_size: int
-    num_layers: int
-    dim: int
-    dim_ff_hidden: int
-    num_head: int
-    base_lr: float
-    base_weight_decay: float
-    dropout: float
-    chunk_size: int
+    def __init__(
+        self,
+        vocab_size: int = 32000,
+        num_layers: int = 12,
+        dim: int = 512,
+        dim_ff_hidden: int = 2048,
+        num_head: int = 8,
+        base_lr: float = 1e-3,
+        dropout: float = 0.1,
+        chunk_size: int = 64,
+    ):
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.num_layers = num_layers
+        self.dim = dim
+        self.dim_ff_hidden = dim_ff_hidden
+        self.num_head = num_head
+        self.base_lr = base_lr
+        self.dropout = dropout
+        self.chunk_size = chunk_size
 
 class TTTPipelineStage(nn.Module):
     """A pipeline-parallel stage containing a subset of TTTModel layers."""
@@ -200,8 +228,7 @@ class TTTPipelineStage(nn.Module):
             [
                 NeuralMemoryBlock(
                     config.dim, config.dim_ff_hidden, config.num_head,
-                    config.base_lr, config.base_weight_decay,
-                    config.chunk_size, config.dropout,
+                    config.base_lr, config.chunk_size, config.dropout, 
                 )
                 for _ in range(self.num_local_layers)
             ]
@@ -287,7 +314,7 @@ class TTTModel(PreTrainedModel):
         self.vocab_size = config.vocab_size
         self.embedding = nn.Embedding(config.vocab_size, config.dim)
         self.token_out = nn.Linear(config.dim, config.vocab_size)
-        self.block_list = nn.ModuleList([NeuralMemoryBlock(config.dim, config.dim_ff_hidden, config.num_head, config.base_lr, config.base_weight_decay, config.chunk_size, config.dropout) for _ in range(config.num_layers)])
+        self.block_list = nn.ModuleList([NeuralMemoryBlock(config.dim, config.dim_ff_hidden, config.num_head, config.base_lr, config.chunk_size, config.dropout) for _ in range(config.num_layers)])
         self.norm_last = RMSNorm(config.dim)
 
     def hidden_init(self, batch_size):

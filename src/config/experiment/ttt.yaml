@@ -6,3 +6,6 @@ defaults:
 experiment:
   model_name: "ttt"
   checkpoint_path: "resources/checkpoints/ttt"
+
+train:
+  batch_size: 12
